@@ -386,6 +386,8 @@ La API utiliza **JWT** para autenticación — todas las rutas `/api/*` (excepto
 
 - Los tokens JWT expiran a las 72 horas
 - Las contraseñas se almacenan con **bcrypt**
+- Las rutas de login/register son públicas (no envían token)
+- El EventSource (SSE) no se conecta sin token válido
 - Configurá `JWT_SECRET` en producción para firmar tokens con un secreto seguro
 - PostgreSQL contiene credenciales de sesión de WhatsApp (secretos): **no lo subas a
   un repositorio** y mantenlo protegido
