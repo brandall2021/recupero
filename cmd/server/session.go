@@ -53,26 +53,21 @@ func newSession(mgr *SessionManager, id, name string, client *whatsmeow.Client) 
 
 func (s *Session) createCall(callID string, record bool) *call.CallManager {
 	cm := call.NewCallManager(wa.NewSocket(s.client), s.log)
-	s.wireCall(cm, callID, record)
-	s.reg.add(callID, &activeCall{cm: cm})
+	ac := &activeCall{cm: cm}
+	s.reg.add(callID, ac)
+	s.wireCall(cm, callID, record, ac)
 	return cm
 }
 
-func (s *Session) wireCall(cm *call.CallManager, callID string, record bool) {
-	var recorder *recording.Recorder
-	var recDir string
-
+func (s *Session) wireCall(cm *call.CallManager, callID string, record bool, ac *activeCall) {
 	if record {
-		recDir = "/data/recordings"
+		recDir := "/data/recordings"
 		_ = os.MkdirAll(recDir, 0755)
 		recPath := filepath.Join(recDir, fmt.Sprintf("%s_%s.wav", callID, time.Now().Format("20060102_150405")))
 		if rec, err := recording.NewRecorder(recPath); err == nil {
-			recorder = rec
+			ac.recorder = rec
+			ac.recordDir = recDir
 			s.log.Info("recording started", "call_id", callID, "path", recPath)
-			if ac, ok := s.reg.get(callID); ok {
-				ac.recorder = recorder
-				ac.recordDir = recDir
-			}
 		} else {
 			s.log.Warn("failed to start recording", "call_id", callID, "err", err)
 		}
