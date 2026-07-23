@@ -37,20 +37,31 @@ mantener **varias llamadas 1:1 simultáneas** — una por cada operador del nave
 enrutadas independientemente por ID de llamada.
 
 > **Estado:** estable. Llamadas salientes y entrantes 1:1 alcanzan `ACTIVE` con audio
-> bidireccional, y una sola cuenta puede mantener varias de ellas concurrentemente.
-> Las sesiones persisten en `wacalls.db` (SQLite en Go puro).
+> bidireccional, grabación server-side WAV, autenticación JWT, y PostgreSQL para
+> persistencia de sesiones, usuarios y grabaciones.
 
 ---
 
-## Funcionalidades nuevas
+## Funcionalidades
 
-### 🎙️ Grabación de llamadas
-- Botón de grabación en la tarjeta de llamada activa
-- Captura audio del micrófono local + audio remoto del interlocutor
-- Usa `MediaRecorder` del navegador (formato WebM/Opus)
-- Descarga automática del archivo de audio al finalizar la grabación
-- Indicador de duración en tiempo real durante la grabación
-- Se detiene automáticamente cuando la llamada termina
+### 🔐 Autenticación
+- Registro e inicio de sesión con email + contraseña
+- JWT (HS256, expiración 72h) para todas las rutas protegidas
+- Ruta `GET /api/auth/me` para obtener el usuario actual
+- Usuarios de prueba precargados (seed automático al iniciar):
+  - `admin@wacalls.com` / `admin123` — Administrador
+  - `operador@wacalls.com` / `operador123` — Operador
+  - `demo@wacalls.com` / `demo123` — Demo
+- Variable de entorno `JWT_SECRET` para firmar tokens (default: `wacalls-default-secret-change-me`)
+
+### 🎙️ Grabación de llamadas (server-side)
+- Grabación automática de todas las llamadas (salientes y entrantes)
+- Formato WAV — 16 kHz mono PCM, codificación estándar
+- Captura audio del micrófono del navegador + audio remoto del interlocutor
+- Archivos WAV guardados en `/data/recordings` (volumen Docker)
+- Tabla PostgreSQL `recordings` con metadata (session_id, call_id, peer, direction, duration, file_path, file_size)
+- API de descarga: `GET /api/recordings/{id}/download`
+- Página de grabaciones en el frontend con lista y botón de descarga
 
 ### 👥 Contactos
 - ABM completo de contactos (alta, baja, modificación)
@@ -112,17 +123,23 @@ enrutadas independientemente por ID de llamada.
 │                    NAVEGADOR (React client)                              │
 │   mic + speaker · WebRTC data channel (16 kHz PCM) · HTTP + SSE         │
 │   + Grabación · Contactos · Agenda · Notas (localStorage)               │
+│   + Auth (JWT en localStorage)                                          │
 └───────────────────────────────┬──────────────────────────────────────────┘
                                 │  POST /api/sessions/{sid}/calls/{id}/webrtc
-                                │  GET  /api/events
+                                │  GET  /api/events?token=...
+                                │  Authorization: Bearer <token>
                                 ▼
 ┌────────────────────────── SERVIDOR GO (cmd/server) ──────────────────────┐
 │  SessionManager   registro de cuentas (client + CallManager + bridge)    │
 │  Broker           hub SSE (sesiones, auth, ciclo de vida de llamadas)    │
 │  Bridge           puente pion WebRTC (PCM 16 kHz ⇄ call core)          │
-│                                                                            │
+│  AuthStore        usuarios + JWT (bcrypt + HS256)                       │
+│  RecordingStore   grabaciones WAV server-side (PostgreSQL)              │
+│  PostgreSQL       sesiones, usuarios, grabaciones                        │
+│                                                                          │
 │  internal/wa      adaptador VoipSocket sobre whatsmeow                   │
 │  internal/voip    call · signaling · media · transport · core · wanode   │
+│  internal/recording  WAV writer 16 kHz mono PCM                         │
 └───────────────┬──────────────────────────────────────┬───────────────────┘
                 │ señalización <call> (Signal/USync)    │ SRTP media
                 ▼                                       ▼
@@ -136,7 +153,11 @@ enrutadas independientemente por ID de llamada.
 
 | Ruta | Responsabilidad |
 |---|---|
-| `cmd/server` | Broker HTTP/SSE, gestor de sesiones, puente WebRTC, ciclo de vida |
+| `cmd/server` | Broker HTTP/SSE, gestor de sesiones, puente WebRTC, auth, grabaciones |
+| `cmd/server/auth.go` | Store de usuarios (PostgreSQL), bcrypt, JWT, handlers login/register/me |
+| `cmd/server/auth_middleware.go` | Middleware `withAuth` — valida JWT en todas las rutas protegidas |
+| `cmd/server/recordingstore.go` | Store de grabaciones PostgreSQL |
+| `internal/recording` | WAV writer 16 kHz mono PCM, header finalization |
 | `internal/wa` | `VoipSocket` — envía/recibe stanzas `<call>` vía whatsmeow |
 | `internal/voip/core` | Tipos de dominio, constantes, interfaz `VoipSocket` |
 | `internal/voip/wanode` | Helpers compartidos de nodo WhatsApp y JID |
@@ -150,6 +171,7 @@ enrutadas independientemente por ID de llamada.
 
 | Store | Datos |
 |---|---|
+| `stores/auth.ts` | Token JWT + usuario (email, name) |
 | `stores/contacts.ts` | Contactos con CRUD, favoritos, búsqueda |
 | `stores/schedule.ts` | Llamadas programadas con estados |
 | `stores/callNotes.ts` | Notas por llamada con rating y tags |
@@ -182,7 +204,7 @@ principio a fin. Secuencia de llamada saliente:
    ├── subida   (vos → par): PCM 16 kHz del navegador (data channel) → MLow encode → SRTP → relay
    └── bajada   (par → vos): relay → SRTP → MLow decode → PCM 16 kHz (data channel) → navegador
 
-6. Grabación                 → MediaRecorder captura mic + audio remoto → descarga WebM
+6. Grabación server-side     → WAV 16 kHz mono PCM → /data/recordings
 
 7. Teardown                  → DELETE .../calls/{id} o events.CallTerminate
                                CallManager.EndCall + limpieza del puente
@@ -194,6 +216,7 @@ principio a fin. Secuencia de llamada saliente:
 
 - **Go 1.26+**
 - **Node 22+** y **npm** (solo para compilar/ejecutar el cliente React)
+- **PostgreSQL** (para sesiones, usuarios y grabaciones)
 
 No se necesita compilador C, cgo ni bibliotecas nativas — el códec MLow es Go
 puro vendoreado (`internal/voip/media/mlow`).
@@ -214,19 +237,26 @@ go mod download
 cd client && npm install && cd ..
 ```
 
+### Variables de entorno
+
+| Variable | Requerida | Descripción |
+|---|---|---|
+| `DATABASE_URL` | Sí | URL de conexión PostgreSQL (ej: `postgresql://user:pass@host:5432/dbname?sslmode=disable`) |
+| `JWT_SECRET` | No | Secreto para firmar tokens JWT (default: `wacalls-default-secret-change-me`) |
+
 ### Ejecutar
 
 ```bash
+export DATABASE_URL="postgresql://brandall:pass@host:5432/wacall2?sslmode=disable"
 go run ./cmd/server -addr :8080          # agregar -debug para logs verbosos
 ```
 
 El audio en vivo funciona directamente — el códec MLow es Go puro, así que una
 compilación simple lo incluye. Sin build tags, sin `CGO_ENABLED`, sin DLLs.
 
-Abrí `http://localhost:8080`, hacé clic en **New session** y escaneá el QR que
-aparece en el navegador (también se imprime en la terminal) con **WhatsApp →
-Dispositivos vinculados**. Agregá más cuentas de la misma forma y cambiá entre
-ellas en la barra lateral.
+Abrí `http://localhost:8080`, registrate o iniciá sesión con las credenciales
+del seed (ej: `admin@wacalls.com` / `admin123`), hacé clic en **New session** y
+escaneá el QR que aparece en el navegador con **WhatsApp → Dispositivos vinculados**.
 
 ### Cliente React en modo desarrollo
 
@@ -242,12 +272,19 @@ cd client && npm run build && cd ..
 go run ./cmd/server -static client/dist -addr :8080
 ```
 
+### Docker
+
+```bash
+docker build -t wacalls .
+docker run -e DATABASE_URL="postgresql://..." -e JWT_SECRET="mi-secreto" -p 8080:8080 wacalls
+```
+
 ### Flags del servidor
 
 | Flag | Valor por defecto | Descripción |
 |---|---|---|
 | `-addr` | `:8080` | Dirección de escucha HTTP |
-| `-db` | `wacalls.db` | Ruta de la base de datos SQLite de sesiones |
+| `-database-url` | (requerido) | URL de conexión PostgreSQL (o usar `DATABASE_URL`) |
 | `-static` | `client/dist` | Directorio del cliente estático (opcional) |
 | `-debug` | `false` | Logging verboso (incluye el log interno de whatsmeow) |
 | `-max-calls-per-session` | `8` | Máximo de llamadas concurrentes por sesión (`0` = sin límite) |
@@ -256,8 +293,17 @@ go run ./cmd/server -static client/dist -addr :8080
 
 ## API
 
-Todas las rutas están delimitadas por sesión. Los eventos se transmiten por un
-único canal SSE, etiquetados con el `sessionId` de origen.
+### Autenticación (rutas públicas)
+
+| Método | Ruta | Propósito |
+|---|---|---|
+| `POST` | `/api/auth/register` | Crear cuenta (`{ email, name, password }`) |
+| `POST` | `/api/auth/login` | Iniciar sesión (`{ email, password }`) |
+| `GET` | `/api/auth/me` | Obtener usuario actual (requiere `Authorization: Bearer <token>`) |
+
+### Sesiones (requiere JWT)
+
+Todas las rutas requieren header `Authorization: Bearer <token>`.
 
 | Método | Ruta | Propósito |
 |---|---|---|
@@ -266,26 +312,42 @@ Todas las rutas están delimitadas por sesión. Los eventos se transmiten por un
 | `DELETE` | `/api/sessions/{sid}` | Cerrar sesión y eliminar una cuenta |
 | `POST` | `/api/sessions/{sid}/logout` | Desconectar una cuenta (mantener para re-vinculación) |
 | `POST` | `/api/sessions/{sid}/pair` | Re-vincular una cuenta (emitir QR nuevo) |
-| `POST` | `/api/sessions/{sid}/calls` | Iniciar llamada saliente (`{ phone, duration_ms?, record? }`) |
+| `POST` | `/api/sessions/{sid}/calls` | Iniciar llamada saliente (`{ phone }`) |
 | `POST` | `/api/sessions/{sid}/calls/{id}/webrtc` | Intercambiar SDP WebRTC del navegador |
 | `POST` | `/api/sessions/{sid}/calls/{id}/accept` | Aceptar llamada entrante |
 | `POST` | `/api/sessions/{sid}/calls/{id}/reject` | Rechazar llamada entrante |
 | `DELETE` | `/api/sessions/{sid}/calls/{id}` | Finalizar llamada activa |
 | `GET` | `/api/sessions/{sid}/history` | Historial de llamadas recientes (hasta 50 registros) |
-| `GET` | `/api/events` | Eventos server-sent (sesiones, auth, ciclo de llamadas) |
+| `GET` | `/api/sessions/{sid}/recordings` | Listar grabaciones de la sesión |
+| `GET` | `/api/recordings/{id}/download` | Descargar archivo WAV |
+| `GET` | `/api/events` | Eventos server-sent (`?token=<jwt>&clientId=<id>`) |
 
 ---
 
 ## Navegación del cliente
 
-El cliente tiene 4 secciones accesibles desde la barra lateral:
+El cliente tiene 5 secciones accesibles desde la barra lateral:
 
 | Sección | Ícono | Descripción |
 |---|---|---|
-| **Calls** | 📞 | Marcador, llamadas activas, calidad, grabación, notas |
+| **Calls** | 📞 | Marcador, llamadas activas, calidad, notas |
 | **Contacts** | 👥 | ABM de contactos con favoritos y búsqueda |
 | **Schedule** | 📅 | Agenda de llamadas programadas |
 | **Notes** | 📝 | Historial de notas con rating y tags |
+| **Recordings** | 🎙️ | Lista de grabaciones con descarga |
+
+---
+
+## Persistencia
+
+| Store | Base de datos | Contenido |
+|---|---|---|
+| `sessions` | PostgreSQL | Cuentas WhatsApp vinculadas (id, name, jid) |
+| `users` | PostgreSQL | Usuarios del sistema (email, name, password bcrypt) |
+| `recordings` | PostgreSQL | Metadata de grabaciones WAV |
+| `/data/recordings/` | Disco | Archivos WAV de grabaciones |
+| whatsmeow store | PostgreSQL | Estado de sesiones WhatsApp (cifrado) |
+| localStorage | Navegador | Contactos, agenda, notas, preferencias, token JWT |
 
 ---
 
@@ -300,10 +362,14 @@ cd client && npm run build    # type-check del cliente + build de producción
 
 ## Seguridad
 
-La API **no tiene autenticación** — cualquiera con acceso HTTP puede crear cuentas,
-hacer llamadas y leer el historial. **Ejecutala solo en una red local de confianza.**
-`wacalls.db` contiene credenciales de sesión de WhatsApp (secretos): **no lo subas a
-un repositorio** y mantenlo protegido.
+La API utiliza **JWT** para autenticación — todas las rutas `/api/*` (excepto
+`/api/auth/login` y `/api/auth/register`) requieren un token válido.
+
+- Los tokens JWT expiran a las 72 horas
+- Las contraseñas se almacenan con **bcrypt**
+- Configurá `JWT_SECRET` en producción para firmar tokens con un secreto seguro
+- PostgreSQL contiene credenciales de sesión de WhatsApp (secretos): **no lo subas a
+  un repositorio** y mantenlo protegido
 
 ---
 
