@@ -19,6 +19,7 @@ func (s *server) routes() http.Handler {
 
 	mux.HandleFunc("POST /api/auth/register", s.handleRegister)
 	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
+	mux.HandleFunc("GET /api/auth/me", s.handleMe)
 
 	mux.Handle("GET /api/sessions", withAuth(http.HandlerFunc(s.handleSessionList)))
 	mux.Handle("POST /api/sessions", withAuth(http.HandlerFunc(s.handleSessionCreate)))

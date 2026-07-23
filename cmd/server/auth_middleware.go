@@ -17,7 +17,7 @@ func withAuth(h http.Handler) http.Handler {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid token"})
 			return
 		}
-		r.Header.Set("X-User-Id", claims.Username)
+		r.Header.Set("X-User-Id", claims.Email)
 		h.ServeHTTP(w, r)
 	})
 }

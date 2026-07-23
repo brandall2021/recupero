@@ -10,7 +10,8 @@ import { apiPost } from "@/lib/api";
 export const LoginPage = () => {
   const setAuth = useAuth((s) => s.setAuth);
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -21,12 +22,15 @@ export const LoginPage = () => {
     setLoading(true);
     try {
       const path = mode === "login" ? "/api/auth/login" : "/api/auth/register";
-      const data = await apiPost<{ token: string; userId: number; username: string }>(path, { username, password });
-      setAuth(data.token, data.userId, data.username);
+      const body = mode === "login"
+        ? { email, password }
+        : { email, name, password };
+      const data = await apiPost<{ token: string; user: { id: number; email: string; name: string } }>(path, body);
+      setAuth(data.token, data.user);
     } catch (err) {
       const msg = (err as Error).message;
       if (msg.includes("401") || msg.includes("400")) {
-        setError(mode === "login" ? "Usuario o contraseña incorrectos" : "Usuario ya existe o datos inválidos");
+        setError(mode === "login" ? "Email o contraseña incorrectos" : "Email ya registrado o datos inválidos");
       } else {
         setError("Error de conexión");
       }
@@ -50,15 +54,27 @@ export const LoginPage = () => {
         <CardContent>
           <form onSubmit={submit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="username">Usuario</Label>
+              <Label htmlFor="email">Email</Label>
               <Input
-                id="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                autoComplete="username"
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
                 required
               />
             </div>
+            {mode === "register" && (
+              <div className="space-y-2">
+                <Label htmlFor="name">Nombre</Label>
+                <Input
+                  id="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  autoComplete="name"
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="password">Contraseña</Label>
               <Input
