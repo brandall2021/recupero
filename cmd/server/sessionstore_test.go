@@ -3,18 +3,30 @@ package main
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
+	"os"
 	"testing"
 )
 
-func TestSessionStoreRoundtrip(t *testing.T) {
-	ctx := context.Background()
-	dbPath := filepath.Join(t.TempDir(), "sessions_test.db")
-	db, err := sql.Open("sqlite", "file:"+dbPath)
+func openTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		dsn = "postgres://postgres:postgres@localhost:5432/wacalls_test?sslmode=disable"
+	}
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+func TestSessionStoreRoundtrip(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+
+	// clean slate
+	db.ExecContext(ctx, "DELETE FROM sessions")
 
 	st, err := newSessionStore(ctx, db)
 	if err != nil {

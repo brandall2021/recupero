@@ -1,15 +1,9 @@
-version: "3.8"
-
 services:
   wacalls:
     build: .
     restart: unless-stopped
     ports:
       - "8080:8080"
-    volumes:
-      - wacalls-data:/data
     environment:
       - TZ=America/Argentina/Buenos_Aires
-
-volumes:
-  wacalls-data:
+      - DATABASE_URL=postgresql://brandall:Hansol1974%2B@basededato-6cfbai:5432/wacall2?sslmode=disable

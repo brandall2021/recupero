@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
-	"path/filepath"
+	"os"
 	"testing"
 
 	"go.mau.fi/whatsmeow"
@@ -15,14 +15,21 @@ import (
 func newTestManager(t *testing.T) *SessionManager {
 	t.Helper()
 	ctx := context.Background()
-	dbPath := filepath.Join(t.TempDir(), "mgr_test.db")
-	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)")
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		dsn = "postgres://postgres:postgres@localhost:5432/wacalls_test?sslmode=disable"
+	}
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
 
-	container := sqlstore.NewWithDB(db, "sqlite3", waLog.Noop)
+	// clean slate
+	db.ExecContext(ctx, "DELETE FROM sessions")
+	db.ExecContext(ctx, "DELETE FROM whatsmeow_device")
+
+	container := sqlstore.NewWithDB(db, "postgres", waLog.Noop)
 	if err := container.Upgrade(ctx); err != nil {
 		t.Fatal(err)
 	}

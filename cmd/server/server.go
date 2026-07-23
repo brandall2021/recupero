@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"log/slog"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	waLog "go.mau.fi/whatsmeow/util/log"
-	_ "modernc.org/sqlite"
 )
 
 type server struct {
@@ -17,22 +17,22 @@ type server struct {
 	staticDir string
 }
 
-func openDB(dbPath string) (*sql.DB, error) {
-	dsn := "file:" + dbPath + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)"
-	db, err := sql.Open("sqlite", dsn)
+func openDB(databaseURL string) (*sql.DB, error) {
+	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1)
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
 	return db, nil
 }
 
-func newServer(ctx context.Context, dbPath, staticDir string, maxCalls int, log *slog.Logger) (*server, error) {
-	db, err := openDB(dbPath)
+func newServer(ctx context.Context, databaseURL, staticDir string, maxCalls int, log *slog.Logger) (*server, error) {
+	db, err := openDB(databaseURL)
 	if err != nil {
 		return nil, err
 	}
-	container := sqlstore.NewWithDB(db, "sqlite3", waLog.Noop)
+	container := sqlstore.NewWithDB(db, "postgres", waLog.Noop)
 	if err := container.Upgrade(ctx); err != nil {
 		return nil, err
 	}

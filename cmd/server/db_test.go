@@ -1,27 +1,30 @@
 package main
 
 import (
-	"path/filepath"
-	"strings"
+	"os"
 	"testing"
 )
 
-func TestOpenDBConcurrencyConfig(t *testing.T) {
-	db, err := openDB(filepath.Join(t.TempDir(), "concurrency.db"))
+func TestOpenDB(t *testing.T) {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		dsn = "postgres://postgres:postgres@localhost:5432/wacalls_test?sslmode=disable"
+	}
+	db, err := openDB(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	if got := db.Stats().MaxOpenConnections; got != 1 {
-		t.Fatalf("expected pool capped to 1 connection, got %d", got)
+	if got := db.Stats().MaxOpenConnections; got != 25 {
+		t.Fatalf("expected pool capped to 25 connections, got %d", got)
 	}
 
-	var mode string
-	if err := db.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
+	var version string
+	if err := db.QueryRow("SELECT version()").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.EqualFold(mode, "wal") {
-		t.Fatalf("expected WAL journal mode, got %q", mode)
+	if version == "" {
+		t.Fatal("expected a PostgreSQL version string")
 	}
 }
