@@ -48,7 +48,7 @@ enrutadas independientemente por ID de llamada.
 - Registro e inicio de sesión con email + contraseña
 - JWT (HS256, expiración 72h) para todas las rutas protegidas
 - Ruta `GET /api/auth/me` para obtener el usuario actual
-- Usuarios de prueba precargados (seed automático al iniciar):
+- Usuarios de prueba precargados (seed automático al iniciar — se resetean en cada reinicio):
   - `admin@wacalls.com` / `admin123` — Administrador
   - `operador@wacalls.com` / `operador123` — Operador
   - `demo@wacalls.com` / `demo123` — Demo
