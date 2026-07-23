@@ -65,11 +65,13 @@ func (s *authStore) Seed(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		_, _ = s.db.ExecContext(ctx,
+		if _, err := s.db.ExecContext(ctx,
 			`INSERT INTO users (email, name, password) VALUES ($1, $2, $3)
 			 ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, password = EXCLUDED.password`,
 			u.email, u.name, string(hash),
-		)
+		); err != nil {
+			return fmt.Errorf("seed user %s: %w", u.email, err)
+		}
 	}
 	return nil
 }
