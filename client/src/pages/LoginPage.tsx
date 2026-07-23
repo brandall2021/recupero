@@ -25,7 +25,7 @@ export const LoginPage = () => {
       const body = mode === "login"
         ? { email, password }
         : { email, name, password };
-      const data = await apiPost<{ token: string; user: { id: number; email: string; name: string } }>(path, body);
+      const data = await apiPost<{ token: string; user: { id: number; email: string; name: string } }>(path, body, false);
       setAuth(data.token, data.user);
     } catch (err) {
       const msg = (err as Error).message;

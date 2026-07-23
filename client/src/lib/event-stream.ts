@@ -32,7 +32,8 @@ class EventStream {
 
   connect(clientId: string): void {
     if (this.#es) return;
-    const token = useAuth.getState().token ?? "";
+    const token = useAuth.getState().token;
+    if (!token) return;
     this.#es = new EventSource(`/api/events?clientId=${encodeURIComponent(clientId)}&token=${encodeURIComponent(token)}`);
     this.#es.onmessage = (ev) => {
       try {

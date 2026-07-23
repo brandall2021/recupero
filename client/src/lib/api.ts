@@ -1,13 +1,15 @@
 import { getClientId } from "./client-id";
 import { useAuth } from "@/stores/auth";
 
-const baseHeaders = (): HeadersInit => {
+const baseHeaders = (auth = true): HeadersInit => {
   const h: Record<string, string> = {
     "X-Client-Id": getClientId(),
     "Content-Type": "application/json",
   };
-  const token = useAuth.getState().token;
-  if (token) h["Authorization"] = `Bearer ${token}`;
+  if (auth) {
+    const token = useAuth.getState().token;
+    if (token) h["Authorization"] = `Bearer ${token}`;
+  }
   return h;
 };
 
@@ -17,8 +19,8 @@ export const apiGet = async <T>(path: string): Promise<T> => {
   return r.json() as Promise<T>;
 };
 
-export const apiPost = async <T>(path: string, body: unknown): Promise<T> => {
-  const r = await fetch(path, { method: "POST", headers: baseHeaders(), body: JSON.stringify(body) });
+export const apiPost = async <T>(path: string, body: unknown, auth = true): Promise<T> => {
+  const r = await fetch(path, { method: "POST", headers: baseHeaders(auth), body: JSON.stringify(body) });
   if (!r.ok) {
     const text = await r.text().catch(() => "");
     throw new Error(`${path} ${r.status} ${text}`);
