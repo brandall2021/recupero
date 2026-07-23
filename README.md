@@ -60,7 +60,7 @@ enrutadas independientemente por ID de llamada.
 - Captura audio del micrófono del navegador + audio remoto del interlocutor
 - Archivos WAV guardados en `/data/recordings` (volumen Docker)
 - Tabla PostgreSQL `recordings` con metadata (session_id, call_id, peer, direction, duration, file_path, file_size)
-- API de descarga: `GET /api/recordings/{id}/download`
+- API de descarga: `GET /api/recordings/{id}/download?token=<jwt>` (token via query param para descarga directa desde el navegador)
 - Página de grabaciones en el frontend con lista y botón de descarga
 
 ### 👥 Contactos
@@ -323,7 +323,7 @@ Todas las rutas requieren header `Authorization: Bearer <token>`.
 | `DELETE` | `/api/sessions/{sid}/calls/{id}` | Finalizar llamada activa |
 | `GET` | `/api/sessions/{sid}/history` | Historial de llamadas recientes (hasta 50 registros) |
 | `GET` | `/api/sessions/{sid}/recordings` | Listar grabaciones de la sesión |
-| `GET` | `/api/recordings/{id}/download` | Descargar archivo WAV |
+| `GET` | `/api/recordings/{id}/download` | Descargar archivo WAV (`?token=<jwt>`) |
 | `GET` | `/api/dashboard` | Dashboard: stats agregadas + sesiones + llamadas recientes |
 | `GET` | `/api/events` | Eventos server-sent (`?token=<jwt>&clientId=<id>`) |
 
@@ -338,6 +338,7 @@ Al iniciar sesión se muestra el **panel de control** con:
 - **Historial reciente**: últimas 20 llamadas con dirección, peer, duración, status y reason
 - Auto-refresh cada 10 segundos
 - Traducciones en/es/pt
+- **Página por defecto** al iniciar sesión
 
 ---
 
