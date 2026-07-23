@@ -13,6 +13,7 @@ import (
 )
 
 func main() {
+	initJWTSecret()
 	addr := flag.String("addr", ":8080", "HTTP listen address")
 	databaseURL := flag.String("database-url", "", "PostgreSQL connection URL (required, or set DATABASE_URL)")
 	staticDir := flag.String("static", "client/dist", "static client directory (optional)")

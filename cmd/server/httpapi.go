@@ -17,21 +17,24 @@ import (
 func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /api/sessions", s.handleSessionList)
-	mux.HandleFunc("POST /api/sessions", s.handleSessionCreate)
-	mux.HandleFunc("DELETE /api/sessions/{sid}", s.handleSessionDelete)
-	mux.HandleFunc("POST /api/sessions/{sid}/logout", s.handleSessionLogout)
-	mux.HandleFunc("POST /api/sessions/{sid}/pair", s.handleSessionPair)
-	mux.HandleFunc("POST /api/sessions/{sid}/calls", s.handleStartCall)
-	mux.HandleFunc("POST /api/sessions/{sid}/calls/{id}/webrtc", s.handleWebRTC)
-	mux.HandleFunc("POST /api/sessions/{sid}/calls/{id}/accept", s.handleAccept)
-	mux.HandleFunc("POST /api/sessions/{sid}/calls/{id}/reject", s.handleReject)
-	mux.HandleFunc("DELETE /api/sessions/{sid}/calls/{id}", s.handleEndCall)
-	mux.HandleFunc("GET /api/sessions/{sid}/history", s.handleHistory)
-	mux.HandleFunc("GET /api/sessions/{sid}/recordings", s.handleRecordingsList)
-	mux.HandleFunc("GET /api/recordings/{rid}/download", s.handleRecordingDownload)
+	mux.HandleFunc("POST /api/auth/register", s.handleRegister)
+	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
 
-	mux.HandleFunc("GET /api/events", s.handleEvents)
+	mux.Handle("GET /api/sessions", withAuth(http.HandlerFunc(s.handleSessionList)))
+	mux.Handle("POST /api/sessions", withAuth(http.HandlerFunc(s.handleSessionCreate)))
+	mux.Handle("DELETE /api/sessions/{sid}", withAuth(http.HandlerFunc(s.handleSessionDelete)))
+	mux.Handle("POST /api/sessions/{sid}/logout", withAuth(http.HandlerFunc(s.handleSessionLogout)))
+	mux.Handle("POST /api/sessions/{sid}/pair", withAuth(http.HandlerFunc(s.handleSessionPair)))
+	mux.Handle("POST /api/sessions/{sid}/calls", withAuth(http.HandlerFunc(s.handleStartCall)))
+	mux.Handle("POST /api/sessions/{sid}/calls/{id}/webrtc", withAuth(http.HandlerFunc(s.handleWebRTC)))
+	mux.Handle("POST /api/sessions/{sid}/calls/{id}/accept", withAuth(http.HandlerFunc(s.handleAccept)))
+	mux.Handle("POST /api/sessions/{sid}/calls/{id}/reject", withAuth(http.HandlerFunc(s.handleReject)))
+	mux.Handle("DELETE /api/sessions/{sid}/calls/{id}", withAuth(http.HandlerFunc(s.handleEndCall)))
+	mux.Handle("GET /api/sessions/{sid}/history", withAuth(http.HandlerFunc(s.handleHistory)))
+	mux.Handle("GET /api/sessions/{sid}/recordings", withAuth(http.HandlerFunc(s.handleRecordingsList)))
+	mux.Handle("GET /api/recordings/{rid}/download", withAuth(http.HandlerFunc(s.handleRecordingDownload)))
+
+	mux.Handle("GET /api/events", withAuth(http.HandlerFunc(s.handleEvents)))
 
 	if s.staticDir != "" {
 		if _, err := os.Stat(s.staticDir); err == nil {
@@ -44,7 +47,7 @@ func (s *server) routes() http.Handler {
 func withCORS(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Client-Id")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Client-Id, Authorization")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

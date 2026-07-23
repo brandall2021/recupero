@@ -13,6 +13,7 @@ import (
 type server struct {
 	broker    *Broker
 	sessions  *SessionManager
+	auth      *authStore
 	log       *slog.Logger
 	staticDir string
 }
@@ -44,6 +45,10 @@ func newServer(ctx context.Context, databaseURL, staticDir string, maxCalls int,
 	if err != nil {
 		return nil, err
 	}
+	authSt, err := newAuthStore(ctx, db)
+	if err != nil {
+		return nil, err
+	}
 
 	waLogger := waLog.Noop
 	if log.Enabled(ctx, slog.LevelDebug) {
@@ -54,5 +59,5 @@ func newServer(ctx context.Context, databaseURL, staticDir string, maxCalls int,
 	mgr := newSessionManager(ctx, container, broker, store, recStore, waLogger, log, maxCalls)
 	broker.SnapshotFn = mgr.snapshotEvents
 
-	return &server{broker: broker, sessions: mgr, log: log, staticDir: staticDir}, nil
+	return &server{broker: broker, sessions: mgr, auth: authSt, log: log, staticDir: staticDir}, nil
 }

@@ -8,6 +8,7 @@ import { ContactsPage } from "@/pages/ContactsPage";
 import { SchedulePage } from "@/pages/SchedulePage";
 import { NotesPage } from "@/pages/NotesPage";
 import { RecordingsPage } from "@/pages/RecordingsPage";
+import { LoginPage } from "@/pages/LoginPage";
 import { SessionPairing } from "@/components/domain/session/SessionPairing";
 import { SessionHeader } from "@/components/domain/session/SessionHeader";
 import { IncomingCallModal } from "@/components/domain/call/IncomingCallModal";
@@ -16,6 +17,7 @@ import { type PageId } from "@/components/layout/Sidebar";
 import { ensureSessionsWired, useSessions } from "@/stores/sessions";
 import { ensureCallsWired } from "@/stores/calls";
 import { useTheme } from "@/stores/theme";
+import { useAuth } from "@/stores/auth";
 import { useI18n, type Locale } from "@/lib/i18n";
 
 const locales: Locale[] = ["en", "es", "pt"];
@@ -26,11 +28,23 @@ export const App = () => {
   const theme = useTheme((s) => s.theme);
   const { t, locale, setLocale } = useI18n();
   const [page, setPage] = useState<PageId>("calls");
+  const isAuthenticated = useAuth((s) => s.isAuthenticated());
 
   useEffect(() => {
-    ensureSessionsWired();
-    ensureCallsWired();
-  }, []);
+    if (isAuthenticated) {
+      ensureSessionsWired();
+      ensureCallsWired();
+    }
+  }, [isAuthenticated]);
+
+  if (!isAuthenticated) {
+    return (
+      <>
+        <LoginPage />
+        <Toaster theme={theme} position="top-right" richColors closeButton />
+      </>
+    );
+  }
 
   const active = sessions.find((s) => s.id === activeId) ?? null;
 

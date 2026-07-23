@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Loader2, Plus, Trash2, Phone, Users, CalendarDays, StickyNote, Mic } from "lucide-react";
+import { Loader2, Plus, Trash2, Phone, Users, CalendarDays, StickyNote, Mic, LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { setActiveSession, useSessions } from "@/stores/sessions";
 import { createSession, deleteSession } from "@/services/sessions";
+import { useAuth } from "@/stores/auth";
 import { useI18n } from "@/lib/i18n";
 import type { SessionInfo, SessionState } from "@/types/session";
 
@@ -38,6 +39,7 @@ export const Sidebar = ({
   const sessions = useSessions((s) => s.sessions);
   const activeId = useSessions((s) => s.activeId);
   const t = useI18n((s) => s.t);
+  const logout = useAuth((s) => s.logout);
   const [creating, setCreating] = useState(false);
   const [toDelete, setToDelete] = useState<SessionInfo | null>(null);
 
@@ -127,6 +129,11 @@ export const Sidebar = ({
       <Button variant="outline" className="w-full" onClick={onNew} disabled={creating}>
         {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
         {t("new_session")}
+      </Button>
+
+      <Button variant="ghost" className="w-full gap-2 text-muted-foreground" onClick={logout}>
+        <LogOut className="h-4 w-4" />
+        {t("logout")}
       </Button>
 
       <ConfirmDialog

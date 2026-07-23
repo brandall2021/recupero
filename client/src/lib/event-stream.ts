@@ -1,5 +1,6 @@
 import type { CallStatus } from "@/types/call";
 import type { SessionInfo, SessionState } from "@/types/session";
+import { useAuth } from "@/stores/auth";
 
 type CallListRow = {
   sessionId: string;
@@ -31,7 +32,8 @@ class EventStream {
 
   connect(clientId: string): void {
     if (this.#es) return;
-    this.#es = new EventSource(`/api/events?clientId=${encodeURIComponent(clientId)}`);
+    const token = useAuth.getState().token ?? "";
+    this.#es = new EventSource(`/api/events?clientId=${encodeURIComponent(clientId)}&token=${encodeURIComponent(token)}`);
     this.#es.onmessage = (ev) => {
       try {
         const parsed: BrokerEvent = JSON.parse(ev.data);
