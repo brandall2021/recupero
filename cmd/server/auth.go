@@ -49,6 +49,25 @@ func newAuthStore(ctx context.Context, db *sql.DB) (*authStore, error) {
 	return &authStore{db: db}, nil
 }
 
+func (s *authStore) Seed(ctx context.Context) error {
+	users := []struct{ username, password, role string }{
+		{"admin@wacalls.com", "admin123", "Administrador"},
+		{"operador@wacalls.com", "operador123", "Operador"},
+		{"demo@wacalls.com", "demo123", "Demo"},
+	}
+	for _, u := range users {
+		hash, err := bcrypt.GenerateFromPassword([]byte(u.password), bcrypt.DefaultCost)
+		if err != nil {
+			return err
+		}
+		_, _ = s.db.ExecContext(ctx,
+			`INSERT INTO users (username, password) VALUES ($1, $2) ON CONFLICT (username) DO NOTHING`,
+			u.username, string(hash),
+		)
+	}
+	return nil
+}
+
 func (s *authStore) Register(ctx context.Context, username, password string) (int64, error) {
 	username = strings.TrimSpace(strings.ToLower(username))
 	if username == "" || password == "" {

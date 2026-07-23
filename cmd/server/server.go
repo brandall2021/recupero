@@ -49,6 +49,9 @@ func newServer(ctx context.Context, databaseURL, staticDir string, maxCalls int,
 	if err != nil {
 		return nil, err
 	}
+	if err := authSt.Seed(ctx); err != nil {
+		log.Warn("user seed failed", "err", err)
+	}
 
 	waLogger := waLog.Noop
 	if log.Enabled(ctx, slog.LevelDebug) {
