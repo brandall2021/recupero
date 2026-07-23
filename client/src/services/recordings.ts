@@ -1,4 +1,5 @@
 import { apiGet } from "@/lib/api";
+import { useAuth } from "@/stores/auth";
 
 export interface Recording {
   id: string;
@@ -15,5 +16,7 @@ export interface Recording {
 export const fetchRecordings = (sid: string) =>
   apiGet<{ recordings: Recording[] }>(`/api/sessions/${sid}/recordings`);
 
-export const downloadRecordingUrl = (rid: string) =>
-  `/api/recordings/${rid}/download`;
+export const downloadRecordingUrl = (rid: string) => {
+  const token = useAuth.getState().token ?? "";
+  return `/api/recordings/${rid}/download?token=${encodeURIComponent(token)}`;
+};
