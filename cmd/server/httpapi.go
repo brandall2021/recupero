@@ -169,7 +169,6 @@ func (s *server) doStartCall(sess *Session, w http.ResponseWriter, r *http.Reque
 	var body struct {
 		Phone      string `json:"phone"`
 		DurationMs int    `json:"duration_ms"`
-		Record     bool   `json:"record"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Phone) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "phone required"})
@@ -186,7 +185,7 @@ func (s *server) doStartCall(sess *Session, w http.ResponseWriter, r *http.Reque
 	}
 	peer := types.NewJID(normalizePhone(body.Phone), types.DefaultUserServer)
 
-	callID, err := sess.startOutgoing(r.Context(), peer, false, body.Record)
+	callID, err := sess.startOutgoing(r.Context(), peer, false)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

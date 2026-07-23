@@ -156,9 +156,9 @@ func (s *Session) stopRecording(callID string, c *call.CallInfo) {
 	})
 }
 
-func (s *Session) startOutgoing(ctx context.Context, peer types.JID, isVideo bool, record bool) (string, error) {
+func (s *Session) startOutgoing(ctx context.Context, peer types.JID, isVideo bool) (string, error) {
 	callID := signaling.GenerateCallID()
-	cm := s.createCall(callID, record)
+	cm := s.createCall(callID, true)
 	if err := cm.StartCall(ctx, callID, peer, isVideo); err != nil {
 		s.removeCall(callID)
 		return "", err
