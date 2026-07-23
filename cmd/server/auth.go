@@ -65,7 +65,8 @@ func (s *authStore) Seed(ctx context.Context) error {
 			return err
 		}
 		_, _ = s.db.ExecContext(ctx,
-			`INSERT INTO users (email, name, password) VALUES ($1, $2, $3) ON CONFLICT (email) DO NOTHING`,
+			`INSERT INTO users (email, name, password) VALUES ($1, $2, $3)
+			 ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, password = EXCLUDED.password`,
 			u.email, u.name, string(hash),
 		)
 	}
