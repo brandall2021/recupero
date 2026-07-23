@@ -54,6 +54,14 @@ enrutadas independientemente por ID de llamada.
   - `demo@wacalls.com` / `demo123` — Demo
 - Variable de entorno `JWT_SECRET` para firmar tokens (default: `wacalls-default-secret-change-me`)
 
+### 👤 Gestión de usuarios
+- CRUD completo: listar, crear, editar, eliminar usuarios
+- Cambio de contraseña (reset) desde el panel de administración
+- Edición de nombre
+- El usuario actual no puede eliminarse a sí mismo
+- API: `GET /api/users`, `POST /api/users`, `PUT /api/users/{id}`, `DELETE /api/users/{id}`
+- Panel accesible desde la barra lateral (icono Shield)
+
 ### 🎙️ Grabación de llamadas (server-side)
 - Grabación automática de todas las llamadas (salientes y entrantes)
 - Formato WAV — 16 kHz mono PCM, codificación estándar
@@ -325,6 +333,10 @@ Todas las rutas requieren header `Authorization: Bearer <token>`.
 | `GET` | `/api/sessions/{sid}/recordings` | Listar grabaciones de la sesión |
 | `GET` | `/api/recordings/{id}/download` | Descargar archivo WAV (`?token=<jwt>`) |
 | `GET` | `/api/dashboard` | Dashboard: stats agregadas + sesiones + llamadas recientes |
+| `GET` | `/api/users` | Listar usuarios |
+| `POST` | `/api/users` | Crear usuario (`{ email, name, password }`) |
+| `PUT` | `/api/users/{id}` | Actualizar usuario (`{ name?, password? }`) |
+| `DELETE` | `/api/users/{id}` | Eliminar usuario |
 | `GET` | `/api/events` | Eventos server-sent (`?token=<jwt>&clientId=<id>`) |
 
 ---
@@ -344,7 +356,7 @@ Al iniciar sesión se muestra el **panel de control** con:
 
 ## Navegación del cliente
 
-El cliente tiene 6 secciones accesibles desde la barra lateral:
+El cliente tiene 7 secciones accesibles desde la barra lateral:
 
 | Sección | Ícono | Descripción |
 |---|---|---|
@@ -354,6 +366,7 @@ El cliente tiene 6 secciones accesibles desde la barra lateral:
 | **Schedule** | 📅 | Agenda de llamadas programadas |
 | **Notes** | 📝 | Historial de notas con rating y tags |
 | **Recordings** | 🎙️ | Lista de grabaciones con descarga |
+| **Users** | 🛡️ | Gestión de usuarios (CRUD, reset contraseña) |
 
 ---
 
