@@ -156,6 +156,7 @@ enrutadas independientemente por ID de llamada.
 | `cmd/server` | Broker HTTP/SSE, gestor de sesiones, puente WebRTC, auth, grabaciones |
 | `cmd/server/auth.go` | Store de usuarios (PostgreSQL), bcrypt, JWT, handlers login/register/me |
 | `cmd/server/auth_middleware.go` | Middleware `withAuth` — valida JWT en todas las rutas protegidas |
+| `cmd/server/dashboard.go` | Endpoint `GET /api/dashboard` — stats agregadas + historial reciente |
 | `cmd/server/recordingstore.go` | Store de grabaciones PostgreSQL |
 | `internal/recording` | WAV writer 16 kHz mono PCM, header finalization |
 | `internal/wa` | `VoipSocket` — envía/recibe stanzas `<call>` vía whatsmeow |
@@ -166,6 +167,7 @@ enrutadas independientemente por ID de llamada.
 | `internal/voip/signaling` | Build/parse de stanzas `<call>`, crypto de claves de llamada |
 | `internal/voip/call` | `CallManager` — orquesta una llamada de principio a fin |
 | `client/` | React 19 + Vite + Tailwind v4 + shadcn/ui |
+| `client/src/pages/DashboardPage.tsx` | Panel de control — stats, sesiones, historial reciente |
 
 ### Stores del cliente (Zustand + localStorage)
 
@@ -179,6 +181,8 @@ enrutadas independientemente por ID de llamada.
 | `stores/sessions.ts` | Sesiones de WhatsApp (del servidor) |
 | `stores/devices.ts` | Dispositivos de audio del navegador |
 | `stores/theme.ts` | Tema claro/oscuro |
+
+> **Nota:** el dashboard carga datos directamente via `GET /api/dashboard` (no usa store Zustand).
 
 ---
 
@@ -320,16 +324,30 @@ Todas las rutas requieren header `Authorization: Bearer <token>`.
 | `GET` | `/api/sessions/{sid}/history` | Historial de llamadas recientes (hasta 50 registros) |
 | `GET` | `/api/sessions/{sid}/recordings` | Listar grabaciones de la sesión |
 | `GET` | `/api/recordings/{id}/download` | Descargar archivo WAV |
+| `GET` | `/api/dashboard` | Dashboard: stats agregadas + sesiones + llamadas recientes |
 | `GET` | `/api/events` | Eventos server-sent (`?token=<jwt>&clientId=<id>`) |
+
+---
+
+## Dashboard
+
+Al iniciar sesión se muestra el **panel de control** con:
+
+- **8 cards de resumen**: sesiones activas, llamadas activas, grabaciones (count + tamaño), duración promedio, llamadas entrantes, salientes, usuarios registrados, uptime
+- **Sesiones**: lista de cuentas WhatsApp con estado (vinculada/no vinculada)
+- **Historial reciente**: últimas 20 llamadas con dirección, peer, duración, status y reason
+- Auto-refresh cada 10 segundos
+- Traducciones en/es/pt
 
 ---
 
 ## Navegación del cliente
 
-El cliente tiene 5 secciones accesibles desde la barra lateral:
+El cliente tiene 6 secciones accesibles desde la barra lateral:
 
 | Sección | Ícono | Descripción |
 |---|---|---|
+| **Dashboard** | 📊 | Panel de control con estadísticas y actividad reciente |
 | **Calls** | 📞 | Marcador, llamadas activas, calidad, notas |
 | **Contacts** | 👥 | ABM de contactos con favoritos y búsqueda |
 | **Schedule** | 📅 | Agenda de llamadas programadas |
