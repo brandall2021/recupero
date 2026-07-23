@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader2, Plus, Trash2, Phone, Users, CalendarDays, StickyNote, Mic, LogOut, LayoutDashboard } from "lucide-react";
+import { Loader2, Plus, Trash2, Phone, Users, CalendarDays, StickyNote, Mic, LogOut, LayoutDashboard, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -10,7 +10,7 @@ import { useAuth } from "@/stores/auth";
 import { useI18n } from "@/lib/i18n";
 import type { SessionInfo, SessionState } from "@/types/session";
 
-export type PageId = "dashboard" | "calls" | "contacts" | "schedule" | "notes" | "recordings";
+export type PageId = "dashboard" | "calls" | "contacts" | "schedule" | "notes" | "recordings" | "users";
 
 const dotClass: Record<SessionState, string> = {
   open: "bg-primary",
@@ -26,6 +26,7 @@ const navItems: { id: PageId; icon: typeof Phone; labelKey: string }[] = [
   { id: "schedule", icon: CalendarDays, labelKey: "schedule_nav" },
   { id: "notes", icon: StickyNote, labelKey: "notes_nav" },
   { id: "recordings", icon: Mic, labelKey: "recordings_nav" },
+  { id: "users", icon: Shield, labelKey: "users_nav" },
 ];
 
 export const Sidebar = ({

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -123,6 +124,63 @@ func (s *authStore) getByID(ctx context.Context, id int64) (*userRow, error) {
 	return &u, nil
 }
 
+func (s *authStore) listAll(ctx context.Context) ([]userRow, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, email, name, '' FROM users ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []userRow
+	for rows.Next() {
+		var u userRow
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Password); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+func (s *authStore) updatePassword(ctx context.Context, id int64, password string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE users SET password = $1 WHERE id = $2`, string(hash), id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return errors.New("user not found")
+	}
+	return nil
+}
+
+func (s *authStore) updateName(ctx context.Context, id int64, name string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE users SET name = $1 WHERE id = $2`, strings.TrimSpace(name), id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return errors.New("user not found")
+	}
+	return nil
+}
+
+func (s *authStore) delete(ctx context.Context, id int64) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return errors.New("user not found")
+	}
+	return nil
+}
+
 type jwtClaims struct {
 	UserID int64  `json:"uid"`
 	Email  string `json:"email"`
@@ -231,4 +289,111 @@ func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user": map[string]any{"id": u.ID, "email": u.Email, "name": u.Name},
 	})
+}
+
+func (s *server) handleUserList(w http.ResponseWriter, r *http.Request) {
+	users, err := s.auth.listAll(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	type userJSON struct {
+		ID    int64  `json:"id"`
+		Email string `json:"email"`
+		Name  string `json:"name"`
+	}
+	out := make([]userJSON, len(users))
+	for i, u := range users {
+		out[i] = userJSON{ID: u.ID, Email: u.Email, Name: u.Name}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"users": out})
+}
+
+func (s *server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Email    string `json:"email"`
+		Name     string `json:"name"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Email) == "" || body.Password == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email and password required"})
+		return
+	}
+	id, err := s.auth.Register(r.Context(), body.Email, body.Name, body.Password)
+	if err != nil {
+		code := http.StatusInternalServerError
+		if errors.Is(err, ErrUserExists) {
+			code = http.StatusConflict
+		}
+		writeJSON(w, code, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user": map[string]any{"id": id, "email": strings.TrimSpace(strings.ToLower(body.Email)), "name": body.Name},
+	})
+}
+
+func (s *server) handleUserUpdatePassword(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	var id int64
+	if _, err := fmt.Sscanf(idStr, "%d", &id); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid user id"})
+		return
+	}
+	var body struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Password == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password required"})
+		return
+	}
+	if err := s.auth.updatePassword(r.Context(), id, body.Password); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *server) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	var id int64
+	if _, err := fmt.Sscanf(idStr, "%d", &id); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid user id"})
+		return
+	}
+	var body struct {
+		Name     string `json:"name"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid body"})
+		return
+	}
+	if body.Name != "" {
+		if err := s.auth.updateName(r.Context(), id, body.Name); err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	if body.Password != "" {
+		if err := s.auth.updatePassword(r.Context(), id, body.Password); err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *server) handleUserDelete(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	var id int64
+	if _, err := fmt.Sscanf(idStr, "%d", &id); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid user id"})
+		return
+	}
+	if err := s.auth.delete(r.Context(), id); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

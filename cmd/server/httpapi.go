@@ -21,6 +21,11 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
 	mux.HandleFunc("GET /api/auth/me", s.handleMe)
 
+	mux.Handle("GET /api/users", withAuth(http.HandlerFunc(s.handleUserList)))
+	mux.Handle("POST /api/users", withAuth(http.HandlerFunc(s.handleUserCreate)))
+	mux.Handle("PUT /api/users/{id}", withAuth(http.HandlerFunc(s.handleUserUpdate)))
+	mux.Handle("DELETE /api/users/{id}", withAuth(http.HandlerFunc(s.handleUserDelete)))
+
 	mux.Handle("GET /api/sessions", withAuth(http.HandlerFunc(s.handleSessionList)))
 	mux.Handle("POST /api/sessions", withAuth(http.HandlerFunc(s.handleSessionCreate)))
 	mux.Handle("DELETE /api/sessions/{sid}", withAuth(http.HandlerFunc(s.handleSessionDelete)))

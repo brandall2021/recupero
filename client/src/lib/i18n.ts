@@ -108,6 +108,19 @@ type TranslationKeys = {
   uptime: string;
   total: string;
   loading: string;
+  // Users
+  users_nav: string;
+  users_management: string;
+  new_user: string;
+  edit_user: string;
+  new_password: string;
+  leave_empty_no_change: string;
+  no_users: string;
+  no_users_desc: string;
+  you: string;
+  delete: string;
+  cancel: string;
+  password: string;
   // Footer
   accounts: string;
   theme: string;
@@ -210,6 +223,18 @@ const translations: Record<Locale, TranslationKeys> = {
     uptime: "Uptime",
     total: "Total",
     loading: "Loading…",
+    users_nav: "Users",
+    users_management: "Users",
+    new_user: "New user",
+    edit_user: "Edit user",
+    new_password: "New password",
+    leave_empty_no_change: "leave empty to keep current",
+    no_users: "No users",
+    no_users_desc: "Create the first user from the button above.",
+    you: "You",
+    delete: "Delete",
+    cancel: "Cancel",
+    password: "Password",
     accounts: "Accounts",
     theme: "Theme",
     language: "Language",
@@ -309,6 +334,18 @@ const translations: Record<Locale, TranslationKeys> = {
     uptime: "Actividad",
     total: "Total",
     loading: "Cargando…",
+    users_nav: "Usuarios",
+    users_management: "Usuarios",
+    new_user: "Nuevo usuario",
+    edit_user: "Editar usuario",
+    new_password: "Nueva contraseña",
+    leave_empty_no_change: "dejar vacío para mantener la actual",
+    no_users: "Sin usuarios",
+    no_users_desc: "Creá el primer usuario desde el botón de arriba.",
+    you: "Vos",
+    delete: "Eliminar",
+    cancel: "Cancelar",
+    password: "Contraseña",
     accounts: "Cuentas",
     theme: "Tema",
     language: "Idioma",
@@ -408,6 +445,18 @@ const translations: Record<Locale, TranslationKeys> = {
     uptime: "Atividade",
     total: "Total",
     loading: "Carregando…",
+    users_nav: "Usuários",
+    users_management: "Usuários",
+    new_user: "Novo usuário",
+    edit_user: "Editar usuário",
+    new_password: "Nova senha",
+    leave_empty_no_change: "deixe vazio para manter a atual",
+    no_users: "Sem usuários",
+    no_users_desc: "Crie o primeiro usuário no botão acima.",
+    you: "Você",
+    delete: "Excluir",
+    cancel: "Cancelar",
+    password: "Senha",
     accounts: "Contas",
     theme: "Tema",
     language: "Idioma",

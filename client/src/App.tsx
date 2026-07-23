@@ -9,6 +9,7 @@ import { SchedulePage } from "@/pages/SchedulePage";
 import { NotesPage } from "@/pages/NotesPage";
 import { RecordingsPage } from "@/pages/RecordingsPage";
 import { DashboardPage } from "@/pages/DashboardPage";
+import { UsersPage } from "@/pages/UsersPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { SessionPairing } from "@/components/domain/session/SessionPairing";
 import { SessionHeader } from "@/components/domain/session/SessionHeader";
@@ -85,6 +86,7 @@ export const App = () => {
             {page === "schedule" && <SchedulePage />}
             {page === "notes" && <NotesPage />}
             {page === "recordings" && active && <RecordingsPage sid={active.id} />}
+            {page === "users" && <UsersPage />}
           </div>
         )}
       </AppShell>
