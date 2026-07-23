@@ -37,6 +37,8 @@ func (s *server) routes() http.Handler {
 
 	mux.Handle("GET /api/events", withAuth(http.HandlerFunc(s.handleEvents)))
 
+	mux.Handle("GET /api/dashboard", withAuth(http.HandlerFunc(s.handleDashboard)))
+
 	if s.staticDir != "" {
 		if _, err := os.Stat(s.staticDir); err == nil {
 			mux.Handle("/", http.FileServer(http.Dir(s.staticDir)))

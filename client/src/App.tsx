@@ -8,6 +8,7 @@ import { ContactsPage } from "@/pages/ContactsPage";
 import { SchedulePage } from "@/pages/SchedulePage";
 import { NotesPage } from "@/pages/NotesPage";
 import { RecordingsPage } from "@/pages/RecordingsPage";
+import { DashboardPage } from "@/pages/DashboardPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { SessionPairing } from "@/components/domain/session/SessionPairing";
 import { SessionHeader } from "@/components/domain/session/SessionHeader";
@@ -27,7 +28,7 @@ export const App = () => {
   const activeId = useSessions((s) => s.activeId);
   const theme = useTheme((s) => s.theme);
   const { t, locale, setLocale } = useI18n();
-  const [page, setPage] = useState<PageId>("calls");
+  const [page, setPage] = useState<PageId>("dashboard");
   const isAuthenticated = useAuth((s) => s.isAuthenticated());
 
   useEffect(() => {
@@ -76,6 +77,7 @@ export const App = () => {
                 </div>
               </div>
             )}
+            {page === "dashboard" && <DashboardPage />}
             {page === "calls" && (
               active?.paired ? <CallsPage sid={active.id} /> : active ? <SessionPairing session={active} /> : null
             )}

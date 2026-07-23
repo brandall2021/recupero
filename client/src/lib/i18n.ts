@@ -96,6 +96,18 @@ type TranslationKeys = {
   no_recordings_desc: string;
   inbound: string;
   outbound: string;
+  // Dashboard
+  dashboard_nav: string;
+  dashboard: string;
+  active_sessions: string;
+  active_calls_dashboard: string;
+  avg_duration: string;
+  recorded: string;
+  users: string;
+  registered: string;
+  uptime: string;
+  total: string;
+  loading: string;
   // Footer
   accounts: string;
   theme: string;
@@ -187,6 +199,17 @@ const translations: Record<Locale, TranslationKeys> = {
     no_recordings_desc: "Recordings will appear here after calls with recording enabled.",
     inbound: "Inbound",
     outbound: "Outbound",
+    dashboard_nav: "Dashboard",
+    dashboard: "Dashboard",
+    active_sessions: "Active sessions",
+    active_calls_dashboard: "Active calls",
+    avg_duration: "Avg duration",
+    recorded: "recorded",
+    users: "Users",
+    registered: "registered",
+    uptime: "Uptime",
+    total: "Total",
+    loading: "Loading…",
     accounts: "Accounts",
     theme: "Theme",
     language: "Language",
@@ -275,6 +298,17 @@ const translations: Record<Locale, TranslationKeys> = {
     no_recordings_desc: "Las grabaciones aparecerán aquí después de llamadas con grabación habilitada.",
     inbound: "Entrante",
     outbound: "Saliente",
+    dashboard_nav: "Panel",
+    dashboard: "Panel de control",
+    active_sessions: "Sesiones activas",
+    active_calls_dashboard: "Llamadas activas",
+    avg_duration: "Duración promedio",
+    recorded: "grabadas",
+    users: "Usuarios",
+    registered: "registrados",
+    uptime: "Actividad",
+    total: "Total",
+    loading: "Cargando…",
     accounts: "Cuentas",
     theme: "Tema",
     language: "Idioma",
@@ -363,6 +397,17 @@ const translations: Record<Locale, TranslationKeys> = {
     no_recordings_desc: "As gravações aparecerão aqui após chamadas com gravação habilitada.",
     inbound: "Recebida",
     outbound: "Enviada",
+    dashboard_nav: "Painel",
+    dashboard: "Painel de controle",
+    active_sessions: "Sessões ativas",
+    active_calls_dashboard: "Chamadas ativas",
+    avg_duration: "Duração média",
+    recorded: "gravadas",
+    users: "Usuários",
+    registered: "cadastrados",
+    uptime: "Atividade",
+    total: "Total",
+    loading: "Carregando…",
     accounts: "Contas",
     theme: "Tema",
     language: "Idioma",

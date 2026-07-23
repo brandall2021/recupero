@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader2, Plus, Trash2, Phone, Users, CalendarDays, StickyNote, Mic, LogOut } from "lucide-react";
+import { Loader2, Plus, Trash2, Phone, Users, CalendarDays, StickyNote, Mic, LogOut, LayoutDashboard } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -10,7 +10,7 @@ import { useAuth } from "@/stores/auth";
 import { useI18n } from "@/lib/i18n";
 import type { SessionInfo, SessionState } from "@/types/session";
 
-export type PageId = "calls" | "contacts" | "schedule" | "notes" | "recordings";
+export type PageId = "dashboard" | "calls" | "contacts" | "schedule" | "notes" | "recordings";
 
 const dotClass: Record<SessionState, string> = {
   open: "bg-primary",
@@ -20,6 +20,7 @@ const dotClass: Record<SessionState, string> = {
 };
 
 const navItems: { id: PageId; icon: typeof Phone; labelKey: string }[] = [
+  { id: "dashboard", icon: LayoutDashboard, labelKey: "dashboard_nav" },
   { id: "calls", icon: Phone, labelKey: "calls_nav" },
   { id: "contacts", icon: Users, labelKey: "contacts_nav" },
   { id: "schedule", icon: CalendarDays, labelKey: "schedule_nav" },
