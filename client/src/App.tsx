@@ -7,6 +7,7 @@ import { CallsPage } from "@/pages/CallsPage";
 import { ContactsPage } from "@/pages/ContactsPage";
 import { SchedulePage } from "@/pages/SchedulePage";
 import { NotesPage } from "@/pages/NotesPage";
+import { RecordingsPage } from "@/pages/RecordingsPage";
 import { SessionPairing } from "@/components/domain/session/SessionPairing";
 import { SessionHeader } from "@/components/domain/session/SessionHeader";
 import { IncomingCallModal } from "@/components/domain/call/IncomingCallModal";
@@ -67,6 +68,7 @@ export const App = () => {
             {page === "contacts" && <ContactsPage />}
             {page === "schedule" && <SchedulePage />}
             {page === "notes" && <NotesPage />}
+            {page === "recordings" && active && <RecordingsPage sid={active.id} />}
           </div>
         )}
       </AppShell>

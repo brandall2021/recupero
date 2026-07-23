@@ -2,17 +2,21 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
+	"wacalls/internal/recording"
 	"wacalls/internal/voip/call"
 	"wacalls/internal/voip/core"
 	"wacalls/internal/voip/signaling"
 	"wacalls/internal/voip/wanode"
 	"wacalls/internal/wa"
 
+	"github.com/google/uuid"
 	"github.com/mdp/qrterminal/v3"
 	"go.mau.fi/whatsmeow"
 	waBinary "go.mau.fi/whatsmeow/binary"
@@ -47,14 +51,33 @@ func newSession(mgr *SessionManager, id, name string, client *whatsmeow.Client) 
 	return s
 }
 
-func (s *Session) createCall(callID string) *call.CallManager {
+func (s *Session) createCall(callID string, record bool) *call.CallManager {
 	cm := call.NewCallManager(wa.NewSocket(s.client), s.log)
-	s.wireCall(cm, callID)
+	s.wireCall(cm, callID, record)
 	s.reg.add(callID, &activeCall{cm: cm})
 	return cm
 }
 
-func (s *Session) wireCall(cm *call.CallManager, callID string) {
+func (s *Session) wireCall(cm *call.CallManager, callID string, record bool) {
+	var recorder *recording.Recorder
+	var recDir string
+
+	if record {
+		recDir = "/data/recordings"
+		_ = os.MkdirAll(recDir, 0755)
+		recPath := filepath.Join(recDir, fmt.Sprintf("%s_%s.wav", callID, time.Now().Format("20060102_150405")))
+		if rec, err := recording.NewRecorder(recPath); err == nil {
+			recorder = rec
+			s.log.Info("recording started", "call_id", callID, "path", recPath)
+			if ac, ok := s.reg.get(callID); ok {
+				ac.recorder = recorder
+				ac.recordDir = recDir
+			}
+		} else {
+			s.log.Warn("failed to start recording", "call_id", callID, "err", err)
+		}
+	}
+
 	cm.OnIncoming = func(c *call.CallInfo) {
 		s.mgr.broker.upsertCall(CallRecord{
 			SessionID: s.id, CallID: c.CallID, Direction: "inbound", Peer: c.PeerJid,
@@ -64,6 +87,7 @@ func (s *Session) wireCall(cm *call.CallManager, callID string) {
 	}
 	cm.OnStateChange = func(c *call.CallInfo) {
 		if c.IsEnded() {
+			s.stopRecording(callID, c)
 			s.removeCall(c.CallID)
 			s.mgr.broker.endCall(c.CallID, string(c.StateData.EndReason))
 			return
@@ -84,21 +108,57 @@ func (s *Session) wireCall(cm *call.CallManager, callID string) {
 		s.mgr.broker.upsertCall(rec)
 	}
 	cm.OnEnded = func(c *call.CallInfo) {
+		s.stopRecording(callID, c)
 		s.removeCall(c.CallID)
 		s.mgr.broker.endCall(c.CallID, string(c.StateData.EndReason))
 	}
 	cm.OnPeerAudio = func(pcm16 []float32) {
 		ac, ok := s.reg.get(callID)
-		if !ok || ac.bridge == nil {
+		if !ok {
 			return
 		}
-		_ = ac.bridge.WritePCM(pcm16)
+		if ac.recorder != nil {
+			ac.recorder.WritePCM(pcm16)
+		}
+		if ac.bridge != nil {
+			_ = ac.bridge.WritePCM(pcm16)
+		}
 	}
 }
 
-func (s *Session) startOutgoing(ctx context.Context, peer types.JID, isVideo bool) (string, error) {
+func (s *Session) stopRecording(callID string, c *call.CallInfo) {
+	ac, ok := s.reg.get(callID)
+	if !ok || ac.recorder == nil {
+		return
+	}
+	path, duration, fileSize, _ := ac.recorder.Stop()
+	s.log.Info("recording stopped", "call_id", callID, "duration", duration, "size", fileSize)
+
+	recID := uuid.New().String()
+	peer := ""
+	dir := "outbound"
+	if c != nil {
+		peer = c.PeerJid
+		if c.Direction == core.CallDirectionIncoming {
+			dir = "inbound"
+		}
+	}
+	_ = s.mgr.recStore.insert(s.mgr.appCtx, &recordingRow{
+		ID:        recID,
+		SessionID: s.id,
+		CallID:    callID,
+		Peer:      peer,
+		Direction: dir,
+		Duration:  int(duration.Seconds()),
+		FilePath:  path,
+		FileSize:  fileSize,
+		CreatedAt: time.Now(),
+	})
+}
+
+func (s *Session) startOutgoing(ctx context.Context, peer types.JID, isVideo bool, record bool) (string, error) {
 	callID := signaling.GenerateCallID()
-	cm := s.createCall(callID)
+	cm := s.createCall(callID, record)
 	if err := cm.StartCall(ctx, callID, peer, isVideo); err != nil {
 		s.removeCall(callID)
 		return "", err
@@ -124,7 +184,7 @@ func (s *Session) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 		s.rejectOffer(ctx, node, evt.From)
 		return
 	}
-	cm := s.createCall(callID)
+	cm := s.createCall(callID, true)
 	cm.HandleCallOffer(ctx, node, evt.From)
 }
 

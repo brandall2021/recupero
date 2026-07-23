@@ -22,5 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 WORKDIR /app
 COPY --from=server /wacalls /usr/local/bin/wacalls
 COPY --from=server /app/client/dist ./client/dist
+RUN mkdir -p /data/recordings
 EXPOSE 8080
+VOLUME /data/recordings
 ENTRYPOINT ["wacalls", "-addr", ":8080", "-static", "/app/client/dist"]

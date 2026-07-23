@@ -3,12 +3,15 @@ package main
 import (
 	"sync"
 
+	"wacalls/internal/recording"
 	"wacalls/internal/voip/call"
 )
 
 type activeCall struct {
-	cm     *call.CallManager
-	bridge *Bridge
+	cm        *call.CallManager
+	bridge    *Bridge
+	recorder  *recording.Recorder
+	recordDir string
 }
 
 type callRegistry struct {

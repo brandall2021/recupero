@@ -17,6 +17,7 @@ type SessionManager struct {
 	container *sqlstore.Container
 	broker    *Broker
 	store     *sessionStore
+	recStore  *recordingStore
 	waLogger  waLog.Logger
 	log       *slog.Logger
 	maxCalls  int
@@ -26,12 +27,13 @@ type SessionManager struct {
 	order    []string
 }
 
-func newSessionManager(ctx context.Context, container *sqlstore.Container, broker *Broker, store *sessionStore, waLogger waLog.Logger, log *slog.Logger, maxCalls int) *SessionManager {
+func newSessionManager(ctx context.Context, container *sqlstore.Container, broker *Broker, store *sessionStore, recStore *recordingStore, waLogger waLog.Logger, log *slog.Logger, maxCalls int) *SessionManager {
 	return &SessionManager{
 		appCtx:    ctx,
 		container: container,
 		broker:    broker,
 		store:     store,
+		recStore:  recStore,
 		waLogger:  waLogger,
 		log:       log,
 		maxCalls:  maxCalls,

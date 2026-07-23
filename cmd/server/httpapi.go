@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -26,6 +28,8 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{sid}/calls/{id}/reject", s.handleReject)
 	mux.HandleFunc("DELETE /api/sessions/{sid}/calls/{id}", s.handleEndCall)
 	mux.HandleFunc("GET /api/sessions/{sid}/history", s.handleHistory)
+	mux.HandleFunc("GET /api/sessions/{sid}/recordings", s.handleRecordingsList)
+	mux.HandleFunc("GET /api/recordings/{rid}/download", s.handleRecordingDownload)
 
 	mux.HandleFunc("GET /api/events", s.handleEvents)
 
@@ -182,7 +186,7 @@ func (s *server) doStartCall(sess *Session, w http.ResponseWriter, r *http.Reque
 	}
 	peer := types.NewJID(normalizePhone(body.Phone), types.DefaultUserServer)
 
-	callID, err := sess.startOutgoing(r.Context(), peer, false)
+	callID, err := sess.startOutgoing(r.Context(), peer, false, body.Record)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -218,6 +222,9 @@ func (s *server) doWebRTC(sess *Session, w http.ResponseWriter, r *http.Request)
 	}
 
 	bridge.OnBrowserPCM = func(pcm []float32) {
+		if ac.recorder != nil {
+			ac.recorder.WritePCM(pcm)
+		}
 		ac.cm.FeedCapturedPCM(pcm)
 	}
 	bridge.OnTerminalICE = func() {
@@ -282,4 +289,30 @@ func normalizePhone(p string) string {
 		}
 	}
 	return b.String()
+}
+
+func (s *server) handleRecordingsList(w http.ResponseWriter, r *http.Request) {
+	if sess := s.sessionByID(w, r.PathValue("sid")); sess != nil {
+		rows, err := s.sessions.recStore.listBySession(r.Context(), sess.id)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"recordings": rows})
+	}
+}
+
+func (s *server) handleRecordingDownload(w http.ResponseWriter, r *http.Request) {
+	rec, err := s.sessions.recStore.get(r.Context(), r.PathValue("rid"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "recording not found"})
+		return
+	}
+	if _, err := os.Stat(rec.FilePath); os.IsNotExist(err) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "file not found"})
+		return
+	}
+	w.Header().Set("Content-Type", "audio/wav")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filepath.Base(rec.FilePath)))
+	http.ServeFile(w, r, rec.FilePath)
 }
