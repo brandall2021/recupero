@@ -312,6 +312,7 @@ docker run -e DATABASE_URL="postgresql://..." -e JWT_SECRET="mi-secreto" -p 8080
 | `POST` | `/api/auth/register` | Crear cuenta (`{ email, name, password }`) |
 | `POST` | `/api/auth/login` | Iniciar sesión (`{ email, password }`) |
 | `GET` | `/api/auth/me` | Obtener usuario actual (requiere `Authorization: Bearer <token>`) |
+| `POST` | `/api/auth/reseed` | Recrear usuarios seed (resetea passwords si ya existen) |
 
 ### Sesiones (requiere JWT)
 

@@ -397,3 +397,11 @@ func (s *server) handleUserDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
+
+func (s *server) handleReseed(w http.ResponseWriter, r *http.Request) {
+	if err := s.auth.Seed(r.Context()); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "users seeded"})
+}
