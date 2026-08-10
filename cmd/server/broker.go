@@ -35,11 +35,13 @@ type AuthSnapshot struct {
 }
 
 type SessionInfo struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	JID    string `json:"jid"`
-	State  string `json:"state"`
-	Paired bool   `json:"paired"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	JID     string `json:"jid"`
+	State   string `json:"state"`
+	Paired  bool   `json:"paired"`
+	Token   string `json:"token,omitempty"`
+	Webhook string `json:"webhook,omitempty"`
 }
 
 type subscriber struct {

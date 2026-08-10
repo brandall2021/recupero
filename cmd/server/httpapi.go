@@ -45,6 +45,16 @@ func (s *server) routes() http.Handler {
 
 	mux.Handle("GET /api/dashboard", withAuth(http.HandlerFunc(s.handleDashboard)))
 
+	channel := func(h http.Handler) http.Handler {
+		return withChannelAuth(withSession(s, h))
+	}
+	mux.Handle("GET /api/channels/{id}", channel(http.HandlerFunc(s.handleChannelInfo)))
+	mux.Handle("POST /api/channels/{id}/calls", channel(http.HandlerFunc(s.handleChannelCall)))
+	mux.Handle("GET /api/channels/{id}/history", channel(http.HandlerFunc(s.handleChannelHistory)))
+	mux.Handle("GET /api/channels/{id}/recordings", channel(http.HandlerFunc(s.handleChannelRecordings)))
+	mux.Handle("DELETE /api/channels/{id}/calls/{callId}", channel(http.HandlerFunc(s.handleChannelEndCall)))
+	mux.Handle("POST /api/channels/{id}/webhook", channel(http.HandlerFunc(s.handleChannelWebhook)))
+
 	if s.staticDir != "" {
 		if _, err := os.Stat(s.staticDir); err == nil {
 			mux.Handle("/", http.FileServer(http.Dir(s.staticDir)))
@@ -105,12 +115,12 @@ func (s *server) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "Session"
 	}
-	id, err := s.sessions.Create(name)
+	id, token, err := s.sessions.Create(name)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"id": id})
+	writeJSON(w, http.StatusOK, map[string]string{"id": id, "token": token})
 }
 
 func (s *server) handleSessionDelete(w http.ResponseWriter, r *http.Request) {

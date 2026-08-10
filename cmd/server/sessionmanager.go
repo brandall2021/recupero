@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -19,6 +20,7 @@ type SessionManager struct {
 	store     *sessionStore
 	recStore  *recordingStore
 	waLogger  waLog.Logger
+	webhook   *webhookClient
 	log       *slog.Logger
 	maxCalls  int
 
@@ -35,10 +37,31 @@ func newSessionManager(ctx context.Context, container *sqlstore.Container, broke
 		store:     store,
 		recStore:  recStore,
 		waLogger:  waLogger,
+		webhook:   newWebhookClient(),
 		log:       log,
 		maxCalls:  maxCalls,
 		sessions:  map[string]*Session{},
 	}
+}
+
+func (m *SessionManager) emitWebhook(s *Session, evtType string, payload map[string]any) {
+	s.mu.Lock()
+	url := s.webhook
+	token := s.token
+	s.mu.Unlock()
+	if url == "" {
+		return
+	}
+	ev := map[string]any{
+		"type":      evtType,
+		"channelId": s.id,
+		"channel":   s.name,
+		"ts":        time.Now().UnixMilli(),
+	}
+	for k, v := range payload {
+		ev[k] = v
+	}
+	m.webhook.post(m.appCtx, url, token, ev)
 }
 
 func (m *SessionManager) register(s *Session) {
@@ -109,8 +132,15 @@ func (m *SessionManager) Restore(ctx context.Context) error {
 			_ = m.store.delete(ctx, row.ID)
 			continue
 		}
+		token := row.Token
+		if token == "" {
+			token = newSessionToken()
+			if err := m.store.setToken(ctx, row.ID, token); err != nil {
+				m.log.Warn("failed to set session token", "session", row.ID, "err", err)
+			}
+		}
 		client := whatsmeow.NewClient(device, m.waLogger)
-		s := newSession(m, row.ID, row.Name, client)
+		s := newSession(m, row.ID, row.Name, token, row.Webhook, client)
 		m.register(s)
 		if err := s.connect(ctx); err != nil {
 			m.log.Error("session connect failed", "session", row.ID, "err", err)
@@ -121,22 +151,23 @@ func (m *SessionManager) Restore(ctx context.Context) error {
 	return nil
 }
 
-func (m *SessionManager) Create(name string) (string, error) {
+func (m *SessionManager) Create(name string) (string, string, error) {
 	id := newSessionID()
-	if err := m.store.insert(m.appCtx, id, name); err != nil {
-		return "", err
+	token := newSessionToken()
+	if err := m.store.insert(m.appCtx, id, name, token); err != nil {
+		return "", "", err
 	}
 	device := m.container.NewDevice()
 	client := whatsmeow.NewClient(device, m.waLogger)
-	s := newSession(m, id, name, client)
+	s := newSession(m, id, name, token, "", client)
 	m.register(s)
 	m.broker.emitSessionList(m.infos())
 	if err := s.startPairing(m.appCtx); err != nil {
 		m.log.Error("start pairing failed", "session", id, "err", err)
-		return "", fmt.Errorf("start pairing: %w", err)
+		return "", "", fmt.Errorf("start pairing: %w", err)
 	}
 	m.log.Info("session created", "session", id, "name", name)
-	return id, nil
+	return id, token, nil
 }
 
 func (m *SessionManager) Delete(ctx context.Context, id string) error {
@@ -192,6 +223,21 @@ func (m *SessionManager) Pair(id string) error {
 	}
 	m.broker.emitSessionList(m.infos())
 	m.log.Info("session re-pairing", "session", id)
+	return nil
+}
+
+func (m *SessionManager) SetWebhook(ctx context.Context, id, url string) error {
+	s, ok := m.Get(id)
+	if !ok {
+		return fmt.Errorf("no session %s", id)
+	}
+	if err := m.store.setWebhook(ctx, id, url); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.webhook = url
+	s.mu.Unlock()
+	m.broker.emitSessionList(m.infos())
 	return nil
 }
 

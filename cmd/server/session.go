@@ -25,10 +25,12 @@ import (
 )
 
 type Session struct {
-	id   string
-	name string
-	mgr  *SessionManager
-	log  *slog.Logger
+	id      string
+	name    string
+	token   string
+	webhook string
+	mgr     *SessionManager
+	log     *slog.Logger
 
 	client *whatsmeow.Client
 	reg    *callRegistry
@@ -37,15 +39,17 @@ type Session struct {
 	auth AuthSnapshot
 }
 
-func newSession(mgr *SessionManager, id, name string, client *whatsmeow.Client) *Session {
+func newSession(mgr *SessionManager, id, name, token, webhook string, client *whatsmeow.Client) *Session {
 	s := &Session{
-		id:     id,
-		name:   name,
-		mgr:    mgr,
-		log:    mgr.log.With("session", id),
-		client: client,
-		auth:   AuthSnapshot{State: "connecting"},
-		reg:    newCallRegistry(),
+		id:      id,
+		name:    name,
+		token:   token,
+		webhook: webhook,
+		mgr:     mgr,
+		log:     mgr.log.With("session", id),
+		client:  client,
+		auth:    AuthSnapshot{State: "connecting"},
+		reg:     newCallRegistry(),
 	}
 	client.AddEventHandler(s.handleEvent)
 	return s
@@ -79,12 +83,18 @@ func (s *Session) wireCall(cm *call.CallManager, callID string, record bool, ac 
 			StartedAt: time.Now().UnixMilli(), Status: StatusRinging,
 		})
 		s.mgr.broker.emitIncoming(s.id, c.CallID, c.PeerJid)
+		s.mgr.emitWebhook(s, "call.incoming", map[string]any{
+			"callId": c.CallID, "peer": c.PeerJid, "direction": "inbound", "status": "ringing",
+		})
 	}
 	cm.OnStateChange = func(c *call.CallInfo) {
 		if c.IsEnded() {
 			s.stopRecording(callID, c)
 			s.removeCall(c.CallID)
 			s.mgr.broker.endCall(c.CallID, string(c.StateData.EndReason))
+			s.mgr.emitWebhook(s, "call.ended", map[string]any{
+				"callId": c.CallID, "peer": c.PeerJid, "reason": string(c.StateData.EndReason),
+			})
 			return
 		}
 		dir := "outbound"
@@ -101,11 +111,17 @@ func (s *Session) wireCall(cm *call.CallManager, callID string, record bool, ac 
 			rec.StartedAt = existing.StartedAt
 		}
 		s.mgr.broker.upsertCall(rec)
+		s.mgr.emitWebhook(s, "call.status", map[string]any{
+			"callId": c.CallID, "peer": c.PeerJid, "direction": dir, "status": mapStatus(c.StateData.State),
+		})
 	}
 	cm.OnEnded = func(c *call.CallInfo) {
 		s.stopRecording(callID, c)
 		s.removeCall(c.CallID)
 		s.mgr.broker.endCall(c.CallID, string(c.StateData.EndReason))
+		s.mgr.emitWebhook(s, "call.ended", map[string]any{
+			"callId": c.CallID, "peer": c.PeerJid, "reason": string(c.StateData.EndReason),
+		})
 	}
 	cm.OnPeerAudio = func(pcm16 []float32) {
 		ac, ok := s.reg.get(callID)
@@ -280,7 +296,7 @@ func (s *Session) info() SessionInfo {
 	if id := s.client.Store.ID; id != nil {
 		jid = id.String()
 	}
-	return SessionInfo{ID: s.id, Name: s.name, JID: jid, State: a.State, Paired: a.Paired || jid != ""}
+	return SessionInfo{ID: s.id, Name: s.name, JID: jid, State: a.State, Paired: a.Paired || jid != "", Token: s.token, Webhook: s.webhook}
 }
 
 func (s *Session) setBridge(callID string, b *Bridge) {

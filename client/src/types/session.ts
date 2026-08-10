@@ -6,4 +6,6 @@ export type SessionInfo = {
   jid: string;
   state: SessionState;
   paired: boolean;
+  token?: string;
+  webhook?: string;
 };

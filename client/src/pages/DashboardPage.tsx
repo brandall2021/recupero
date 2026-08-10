@@ -34,7 +34,7 @@ interface RecentCall {
 interface DashboardData {
   stats: DashboardStats;
   recentCalls: RecentCall[];
-  sessions: { id: string; name: string; jid: string; state: string; paired: boolean }[];
+  sessions: { id: string; name: string; jid: string; state: string; paired: boolean; token?: string; webhook?: string }[];
 }
 
 const fmtDuration = (sec: number) => {

@@ -340,6 +340,30 @@ Todas las rutas requieren header `Authorization: Bearer <token>`.
 | `DELETE` | `/api/users/{id}` | Eliminar usuario |
 | `GET` | `/api/events` | Eventos server-sent (`?token=<jwt>&clientId=<id>`) |
 
+### API externa de canales (requiere token del canal)
+
+Cada canal (sesión WhatsApp) expone su propio `id` y `token`. El token se devuelve al
+crear el canal (`POST /api/sessions`) y en el listado (`GET /api/sessions`, campo
+`token`). Las rutas siguientes permiten a un sistema externo consumir el canal vía
+HTTP usando el token del canal:
+
+| Método | Ruta | Propósito |
+|---|---|---|
+| `GET` | `/api/channels/{id}` | Estado del canal (id, nombre, jid, estado, paired, token) |
+| `POST` | `/api/channels/{id}/calls` | Iniciar llamada saliente (`{ phone }`) |
+| `GET` | `/api/channels/{id}/history` | Historial de llamadas recientes del canal |
+| `GET` | `/api/channels/{id}/recordings` | Listar grabaciones del canal |
+| `DELETE` | `/api/channels/{id}/calls/{callId}` | Finalizar llamada activa |
+| `POST` | `/api/channels/{id}/webhook` | Configurar webhook de eventos (`{ url }`) |
+
+Autenticación: header `X-Channel-Token: <token>` o `Authorization: Bearer <token>`.
+
+**Webhook de eventos**: si el canal tiene `webhook` configurado, el servidor envía
+`POST` a esa URL con los eventos `call.incoming`, `call.outbound`, `call.status` y
+`call.ended` (payload: `type`, `channelId`, `channel`, `ts`, `callId`, `peer`,
+`direction`, `status`/`reason`). Incluye `X-Channel-Token` y `Authorization: Bearer`
+con el token del canal para que el receptor pueda validarlo.
+
 ---
 
 ## Dashboard
