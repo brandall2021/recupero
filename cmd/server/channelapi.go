@@ -40,6 +40,8 @@ func channelFromRequest(w http.ResponseWriter, r *http.Request) *Session {
 	return sess
 }
 
+// channelTokenHash returns the stored token hash for constant-time comparison.
+// The session's plaintext token is never retained.
 func withChannelAuth(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sid := r.PathValue("id")
@@ -48,8 +50,12 @@ func withChannelAuth(h http.Handler) http.Handler {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such channel"})
 			return
 		}
+		if sess.tokenHash == "" {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid channel token"})
+			return
+		}
 		token := channelToken(r)
-		if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(sess.token)) != 1 {
+		if token == "" || subtle.ConstantTimeCompare([]byte(hashToken(token)), []byte(sess.tokenHash)) != 1 {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid channel token"})
 			return
 		}
@@ -59,6 +65,9 @@ func withChannelAuth(h http.Handler) http.Handler {
 
 func channelToken(r *http.Request) string {
 	if t := r.Header.Get("X-Channel-Token"); t != "" {
+		return t
+	}
+	if t := r.Header.Get("X-Session-Token"); t != "" {
 		return t
 	}
 	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
@@ -79,14 +88,18 @@ func (s *server) handleChannelCall(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type callStartRequest struct {
+	Phone             string         `json:"phone"`
+	ExternalReference string         `json:"externalReference"`
+	Metadata          map[string]any `json:"metadata"`
+}
+
 func (s *server) doChannelCall(sess *Session, w http.ResponseWriter, r *http.Request) {
 	if sess.client.Store.ID == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "not paired"})
 		return
 	}
-	var body struct {
-		Phone string `json:"phone"`
-	}
+	var body callStartRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Phone) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "phone required"})
 		return
@@ -104,11 +117,15 @@ func (s *server) doChannelCall(sess *Session, w http.ResponseWriter, r *http.Req
 	s.broker.upsertCall(CallRecord{
 		SessionID: sess.id, CallID: callID, Direction: "outbound", Peer: peer.String(),
 		StartedAt: time.Now().UnixMilli(), Status: StatusRinging,
+		ExternalReference: body.ExternalReference,
 	})
-	s.sessions.emitWebhook(sess, "call.outbound", map[string]any{
-		"callId": callID, "peer": peer.String(), "direction": "outbound", "status": "ringing",
+	sess.emitCallWebhook("call.outbound", callID, peer.String(), "outbound", StatusRinging, body.ExternalReference)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"callId":            callID,
+		"sessionId":         sess.id,
+		"status":            StatusRinging,
+		"externalReference": body.ExternalReference,
 	})
-	writeJSON(w, http.StatusOK, map[string]string{"callId": callID})
 }
 
 func (s *server) handleChannelHistory(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +136,7 @@ func (s *server) handleChannelHistory(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleChannelRecordings(w http.ResponseWriter, r *http.Request) {
 	if sess := channelFromRequest(w, r); sess != nil {
-		rows, err := s.sessions.recStore.listBySession(r.Context(), sess.id)
+		rows, err := s.sessions.recStore.listBySession(r.Context(), sess.id, sess.clientID)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return

@@ -14,6 +14,7 @@ type server struct {
 	broker    *Broker
 	sessions  *SessionManager
 	auth      *authStore
+	clients   *clientStore
 	log       *slog.Logger
 	staticDir string
 }
@@ -35,6 +36,10 @@ func newServer(ctx context.Context, databaseURL, staticDir string, maxCalls int,
 	}
 	container := sqlstore.NewWithDB(db, "postgres", waLog.Noop)
 	if err := container.Upgrade(ctx); err != nil {
+		return nil, err
+	}
+	clientSt, err := newClientStore(ctx, db)
+	if err != nil {
 		return nil, err
 	}
 	store, err := newSessionStore(ctx, db)
@@ -59,8 +64,8 @@ func newServer(ctx context.Context, databaseURL, staticDir string, maxCalls int,
 	}
 
 	broker := NewBroker()
-	mgr := newSessionManager(ctx, container, broker, store, recStore, waLogger, log, maxCalls)
+	mgr := newSessionManager(ctx, container, broker, store, recStore, clientSt, waLogger, log, maxCalls)
 	broker.SnapshotFn = mgr.snapshotEvents
 
-	return &server{broker: broker, sessions: mgr, auth: authSt, log: log, staticDir: staticDir}, nil
+	return &server{broker: broker, sessions: mgr, auth: authSt, clients: clientSt, log: log, staticDir: staticDir}, nil
 }

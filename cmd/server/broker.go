@@ -17,15 +17,16 @@ const (
 )
 
 type CallRecord struct {
-	SessionID string     `json:"sessionId"`
-	CallID    string     `json:"callId"`
-	Owner     *string    `json:"owner"`
-	Direction string     `json:"direction"`
-	Peer      string     `json:"peer"`
-	StartedAt int64      `json:"startedAt"`
-	Status    CallStatus `json:"status"`
-	EndedAt   *int64     `json:"endedAt,omitempty"`
-	EndReason string     `json:"endReason,omitempty"`
+	SessionID         string     `json:"sessionId"`
+	CallID            string     `json:"callId"`
+	Owner             *string    `json:"owner"`
+	Direction         string     `json:"direction"`
+	Peer              string     `json:"peer"`
+	StartedAt         int64      `json:"startedAt"`
+	Status            CallStatus `json:"status"`
+	EndedAt           *int64     `json:"endedAt,omitempty"`
+	EndReason         string     `json:"endReason,omitempty"`
+	ExternalReference string     `json:"externalReference,omitempty"`
 }
 
 type AuthSnapshot struct {
@@ -35,13 +36,16 @@ type AuthSnapshot struct {
 }
 
 type SessionInfo struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	JID     string `json:"jid"`
-	State   string `json:"state"`
-	Paired  bool   `json:"paired"`
-	Token   string `json:"token,omitempty"`
-	Webhook string `json:"webhook,omitempty"`
+	ID              string `json:"id"`
+	ClientID        string `json:"clientId,omitempty"`
+	Name            string `json:"name"`
+	JID             string `json:"jid"`
+	PhoneNumber     string `json:"phoneNumber,omitempty"`
+	State           string `json:"state"`
+	Paired          bool   `json:"paired"`
+	TokenConfigured bool   `json:"tokenConfigured"`
+	TokenPrefix     string `json:"tokenPrefix,omitempty"`
+	Webhook         string `json:"webhook,omitempty"`
 }
 
 type subscriber struct {

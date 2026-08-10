@@ -28,7 +28,14 @@ type userRow struct {
 	Email    string
 	Name     string
 	Password string
+	Role     string
+	ClientID *string
 }
+
+const (
+	rolePlatformAdmin = "platform_admin"
+	roleClientAdmin   = "client_admin"
+)
 
 func initJWTSecret() {
 	secret := os.Getenv("JWT_SECRET")
@@ -44,21 +51,26 @@ func newAuthStore(ctx context.Context, db *sql.DB) (*authStore, error) {
 		email      TEXT UNIQUE NOT NULL,
 		name       TEXT NOT NULL DEFAULT '',
 		password   TEXT NOT NULL,
+		role       TEXT NOT NULL DEFAULT 'client_admin',
+		client_id  UUID,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	)`)
 	if err != nil {
 		return nil, err
 	}
-	// Migration: add name column if missing (for existing installs)
+	// Migration: add columns if missing (for existing installs)
 	_, _ = db.ExecContext(ctx, `ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT ''`)
+	_, _ = db.ExecContext(ctx, `ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'client_admin'`)
+	_, _ = db.ExecContext(ctx, `ALTER TABLE users ADD COLUMN IF NOT EXISTS client_id UUID`)
+	_, _ = db.ExecContext(ctx, `UPDATE users SET role = 'platform_admin' WHERE email = 'admin@wacalls.com' AND role = 'client_admin'`)
 	return &authStore{db: db}, nil
 }
 
 func (s *authStore) Seed(ctx context.Context) error {
-	users := []struct{ email, password, name string }{
-		{"admin@wacalls.com", "admin123", "Administrador"},
-		{"operador@wacalls.com", "operador123", "Operador"},
-		{"demo@wacalls.com", "demo123", "Demo"},
+	users := []struct{ email, password, name, role string }{
+		{"admin@wacalls.com", "admin123", "Administrador", rolePlatformAdmin},
+		{"operador@wacalls.com", "operador123", "Operador", roleClientAdmin},
+		{"demo@wacalls.com", "demo123", "Demo", roleClientAdmin},
 	}
 	for _, u := range users {
 		hash, err := bcrypt.GenerateFromPassword([]byte(u.password), bcrypt.DefaultCost)
@@ -66,9 +78,9 @@ func (s *authStore) Seed(ctx context.Context) error {
 			return err
 		}
 		if _, err := s.db.ExecContext(ctx,
-			`INSERT INTO users (email, name, password) VALUES ($1, $2, $3)
-			 ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, password = EXCLUDED.password`,
-			u.email, u.name, string(hash),
+			`INSERT INTO users (email, name, password, role) VALUES ($1, $2, $3, $4)
+			 ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, password = EXCLUDED.password, role = EXCLUDED.role`,
+			u.email, u.name, string(hash), u.role,
 		); err != nil {
 			return fmt.Errorf("seed user %s: %w", u.email, err)
 		}
@@ -77,6 +89,11 @@ func (s *authStore) Seed(ctx context.Context) error {
 }
 
 func (s *authStore) Register(ctx context.Context, email, name, password string) (int64, error) {
+	return s.RegisterForClient(ctx, email, name, password, roleClientAdmin, nil)
+}
+
+// RegisterForClient inserts a user with an explicit role and optional client_id.
+func (s *authStore) RegisterForClient(ctx context.Context, email, name, password, role string, clientID *string) (int64, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
 	name = strings.TrimSpace(name)
 	if email == "" || password == "" {
@@ -87,9 +104,13 @@ func (s *authStore) Register(ctx context.Context, email, name, password string) 
 		return 0, err
 	}
 	var id int64
+	var clientIDArg any
+	if clientID != nil {
+		clientIDArg = *clientID
+	}
 	err = s.db.QueryRowContext(ctx,
-		`INSERT INTO users (email, name, password) VALUES ($1, $2, $3) RETURNING id`,
-		email, name, string(hash),
+		`INSERT INTO users (email, name, password, role, client_id) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		email, name, string(hash), role, clientIDArg,
 	).Scan(&id)
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
@@ -103,11 +124,15 @@ func (s *authStore) Register(ctx context.Context, email, name, password string) 
 func (s *authStore) Login(ctx context.Context, email, password string) (*userRow, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
 	var u userRow
+	var clientID sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, email, name, password FROM users WHERE email = $1`, email,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Password)
+		`SELECT id, email, name, password, role, client_id FROM users WHERE email = $1`, email,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Password, &u.Role, &clientID)
 	if err != nil {
 		return nil, ErrBadLogin
+	}
+	if clientID.Valid && clientID.String != "" {
+		u.ClientID = &clientID.String
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(password)); err != nil {
 		return nil, ErrBadLogin
@@ -117,17 +142,21 @@ func (s *authStore) Login(ctx context.Context, email, password string) (*userRow
 
 func (s *authStore) getByID(ctx context.Context, id int64) (*userRow, error) {
 	var u userRow
+	var clientID sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, email, name, password FROM users WHERE id = $1`, id,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Password)
+		`SELECT id, email, name, password, role, client_id FROM users WHERE id = $1`, id,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Password, &u.Role, &clientID)
 	if err != nil {
 		return nil, err
+	}
+	if clientID.Valid && clientID.String != "" {
+		u.ClientID = &clientID.String
 	}
 	return &u, nil
 }
 
 func (s *authStore) listAll(ctx context.Context) ([]userRow, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, email, name, '' FROM users ORDER BY id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, email, name, '' AS password, role, client_id FROM users ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -135,8 +164,12 @@ func (s *authStore) listAll(ctx context.Context) ([]userRow, error) {
 	var out []userRow
 	for rows.Next() {
 		var u userRow
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Password); err != nil {
+		var clientID sql.NullString
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Password, &u.Role, &clientID); err != nil {
 			return nil, err
+		}
+		if clientID.Valid && clientID.String != "" {
+			u.ClientID = &clientID.String
 		}
 		out = append(out, u)
 	}
@@ -184,19 +217,25 @@ func (s *authStore) delete(ctx context.Context, id int64) error {
 }
 
 type jwtClaims struct {
-	UserID int64  `json:"uid"`
-	Email  string `json:"email"`
+	UserID   int64  `json:"uid"`
+	Email    string `json:"email"`
+	Role     string `json:"role"`
+	ClientID string `json:"cid,omitempty"`
 	jwt.RegisteredClaims
 }
 
-func generateToken(userID int64, email string) (string, error) {
+func generateToken(user *userRow) (string, error) {
 	claims := jwtClaims{
-		UserID: userID,
-		Email:  email,
+		UserID: user.ID,
+		Email:  user.Email,
+		Role:   user.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(72 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
+	}
+	if user.ClientID != nil {
+		claims.ClientID = *user.ClientID
 	}
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return t.SignedString(jwtSecret)
@@ -236,14 +275,15 @@ func (s *server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, code, map[string]string{"error": err.Error()})
 		return
 	}
-	token, err := generateToken(id, strings.TrimSpace(strings.ToLower(body.Email)))
+	u := &userRow{ID: id, Email: strings.TrimSpace(strings.ToLower(body.Email)), Name: body.Name, Role: roleClientAdmin}
+	token, err := generateToken(u)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "token generation failed"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"token": token,
-		"user":  map[string]any{"id": id, "email": strings.TrimSpace(strings.ToLower(body.Email)), "name": body.Name},
+		"user":  userJSONFromRow(u),
 	})
 }
 
@@ -261,15 +301,48 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 		return
 	}
-	token, err := generateToken(u.ID, u.Email)
+	if u.Role == roleClientAdmin {
+		if code, err := s.checkClientAccess(r, u); err != nil {
+			writeJSON(w, code, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	token, err := generateToken(u)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "token generation failed"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"token": token,
-		"user":  map[string]any{"id": u.ID, "email": u.Email, "name": u.Name},
+		"user":  userJSONFromRow(u),
 	})
+}
+
+// checkClientAccess returns an HTTP status code + error if the user's client is
+// not in an operable state (suspended/disabled clients cannot log in).
+func (s *server) checkClientAccess(r *http.Request, u *userRow) (int, error) {
+	if u.ClientID == nil || *u.ClientID == "" {
+		return http.StatusOK, nil
+	}
+	cl, err := s.clients.get(r.Context(), *u.ClientID)
+	if err != nil {
+		if errors.Is(err, ErrClientNotFound) {
+			return http.StatusUnauthorized, errors.New("invalid credentials")
+		}
+		return http.StatusInternalServerError, err
+	}
+	if cl.Status != "active" {
+		return http.StatusForbidden, errors.New("client suspended or disabled")
+	}
+	return http.StatusOK, nil
+}
+
+func userJSONFromRow(u *userRow) map[string]any {
+	out := map[string]any{"id": u.ID, "email": u.Email, "name": u.Name, "role": u.Role}
+	if u.ClientID != nil {
+		out["clientId"] = *u.ClientID
+	}
+	return out
 }
 
 func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
@@ -289,7 +362,7 @@ func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user": map[string]any{"id": u.ID, "email": u.Email, "name": u.Name},
+		"user": userJSONFromRow(u),
 	})
 }
 
@@ -300,13 +373,15 @@ func (s *server) handleUserList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type userJSON struct {
-		ID    int64  `json:"id"`
-		Email string `json:"email"`
-		Name  string `json:"name"`
+		ID       int64   `json:"id"`
+		Email    string  `json:"email"`
+		Name     string  `json:"name"`
+		Role     string  `json:"role"`
+		ClientID *string `json:"clientId,omitempty"`
 	}
 	out := make([]userJSON, len(users))
 	for i, u := range users {
-		out[i] = userJSON{ID: u.ID, Email: u.Email, Name: u.Name}
+		out[i] = userJSON{ID: u.ID, Email: u.Email, Name: u.Name, Role: u.Role, ClientID: u.ClientID}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"users": out})
 }
@@ -331,7 +406,7 @@ func (s *server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user": map[string]any{"id": id, "email": strings.TrimSpace(strings.ToLower(body.Email)), "name": body.Name},
+		"user": map[string]any{"id": id, "email": strings.TrimSpace(strings.ToLower(body.Email)), "name": body.Name, "role": roleClientAdmin},
 	})
 }
 

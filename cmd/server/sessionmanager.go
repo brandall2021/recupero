@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -19,6 +20,7 @@ type SessionManager struct {
 	broker    *Broker
 	store     *sessionStore
 	recStore  *recordingStore
+	clients   *clientStore
 	waLogger  waLog.Logger
 	webhook   *webhookClient
 	log       *slog.Logger
@@ -29,13 +31,14 @@ type SessionManager struct {
 	order    []string
 }
 
-func newSessionManager(ctx context.Context, container *sqlstore.Container, broker *Broker, store *sessionStore, recStore *recordingStore, waLogger waLog.Logger, log *slog.Logger, maxCalls int) *SessionManager {
+func newSessionManager(ctx context.Context, container *sqlstore.Container, broker *Broker, store *sessionStore, recStore *recordingStore, clients *clientStore, waLogger waLog.Logger, log *slog.Logger, maxCalls int) *SessionManager {
 	return &SessionManager{
 		appCtx:    ctx,
 		container: container,
 		broker:    broker,
 		store:     store,
 		recStore:  recStore,
+		clients:   clients,
 		waLogger:  waLogger,
 		webhook:   newWebhookClient(),
 		log:       log,
@@ -47,21 +50,24 @@ func newSessionManager(ctx context.Context, container *sqlstore.Container, broke
 func (m *SessionManager) emitWebhook(s *Session, evtType string, payload map[string]any) {
 	s.mu.Lock()
 	url := s.webhook
-	token := s.token
+	signingKey := s.tokenHash
 	s.mu.Unlock()
 	if url == "" {
 		return
 	}
 	ev := map[string]any{
+		"eventId":   newEventID(),
 		"type":      evtType,
-		"channelId": s.id,
-		"channel":   s.name,
-		"ts":        time.Now().UnixMilli(),
+		"timestamp": time.Now().UnixMilli(),
+		"session": map[string]any{
+			"id":   s.id,
+			"name": s.name,
+		},
 	}
 	for k, v := range payload {
 		ev[k] = v
 	}
-	m.webhook.post(m.appCtx, url, token, ev)
+	m.webhook.post(m.appCtx, url, signingKey, ev)
 }
 
 func (m *SessionManager) register(s *Session) {
@@ -110,13 +116,34 @@ func (m *SessionManager) snapshotEvents() []any {
 	return []any{map[string]any{"type": "session-list", "sessions": m.infos()}}
 }
 
+// activeClient returns the client the session belongs to and whether it is
+// allowed to run (active clients only). Callers should short-circuit when ok is false.
+func (m *SessionManager) sessionClientOK(ctx context.Context, row *sessionRow) (*clientRow, bool) {
+	cl, err := m.clients.get(ctx, row.ClientID)
+	if err != nil {
+		return nil, false
+	}
+	if cl.Status != "active" {
+		return nil, false
+	}
+	return cl, true
+}
+
 func (m *SessionManager) Restore(ctx context.Context) error {
 	rows, err := m.store.list(ctx)
 	if err != nil {
 		return err
 	}
+	restored := 0
 	for _, row := range rows {
+		cl, ok := m.sessionClientOK(ctx, &row)
+		if !ok {
+			m.log.Warn("skipping session: client missing or not active", "session", row.ID, "client", row.ClientID)
+			continue
+		}
+		_ = cl
 		if row.JID == "" {
+			m.log.Warn("dropping session with no jid", "session", row.ID)
 			_ = m.store.delete(ctx, row.ID)
 			continue
 		}
@@ -132,42 +159,86 @@ func (m *SessionManager) Restore(ctx context.Context) error {
 			_ = m.store.delete(ctx, row.ID)
 			continue
 		}
-		token := row.Token
-		if token == "" {
-			token = newSessionToken()
-			if err := m.store.setToken(ctx, row.ID, token); err != nil {
+		tokenHash := row.TokenHash
+		if tokenHash == "" {
+			if _, err := m.store.rotateToken(ctx, row.ID); err != nil {
 				m.log.Warn("failed to set session token", "session", row.ID, "err", err)
+			}
+			if refreshed, err := m.store.get(ctx, row.ID); err == nil {
+				tokenHash = refreshed.TokenHash
 			}
 		}
 		client := whatsmeow.NewClient(device, m.waLogger)
-		s := newSession(m, row.ID, row.Name, token, row.Webhook, client)
+		s := newSession(m, row.ID, row.ClientID, row.Name, tokenHash, row.Webhook, client)
 		m.register(s)
+		restored++
 		if err := s.connect(ctx); err != nil {
 			m.log.Error("session connect failed", "session", row.ID, "err", err)
 		}
 	}
 	m.broker.emitSessionList(m.infos())
-	m.log.Info("sessions restored", "count", len(m.infos()))
+	m.log.Info("sessions restored", "count", restored)
 	return nil
 }
 
-func (m *SessionManager) Create(name string) (string, string, error) {
-	id := newSessionID()
-	token := newSessionToken()
-	if err := m.store.insert(m.appCtx, id, name, token); err != nil {
+// Create creates a new session for a client, enforcing the client's session
+// limit. Returns the session id and the plaintext token (shown only once).
+func (m *SessionManager) Create(clientID, name string) (string, string, error) {
+	if clientID == "" {
+		return "", "", errors.New("client required")
+	}
+	cl, err := m.clients.get(m.appCtx, clientID)
+	if err != nil {
 		return "", "", err
 	}
-	device := m.container.NewDevice()
-	client := whatsmeow.NewClient(device, m.waLogger)
-	s := newSession(m, id, name, token, "", client)
+	if cl.Status != "active" {
+		return "", "", ErrClientNotActive
+	}
+	id, token, err := m.store.createWithLimit(m.appCtx, clientID, name)
+	if err != nil {
+		return "", "", err
+	}
+	client := whatsmeow.NewClient(m.container.NewDevice(), m.waLogger)
+	s := newSession(m, id, clientID, name, hashToken(token), "", client)
 	m.register(s)
 	m.broker.emitSessionList(m.infos())
 	if err := s.startPairing(m.appCtx); err != nil {
 		m.log.Error("start pairing failed", "session", id, "err", err)
 		return "", "", fmt.Errorf("start pairing: %w", err)
 	}
-	m.log.Info("session created", "session", id, "name", name)
+	m.log.Info("session created", "session", id, "name", name, "client", clientID)
 	return id, token, nil
+}
+
+func (m *SessionManager) RegenerateToken(ctx context.Context, id string) (string, error) {
+	s, ok := m.Get(id)
+	if !ok {
+		return "", fmt.Errorf("no session %s", id)
+	}
+	token, err := m.store.rotateToken(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	s.mu.Lock()
+	s.tokenHash = hashToken(token)
+	s.mu.Unlock()
+	m.broker.emitSessionList(m.infos())
+	m.log.Info("session token regenerated", "session", id)
+	return token, nil
+}
+
+func (m *SessionManager) Disable(ctx context.Context, id string) error {
+	if err := m.store.setStatus(ctx, id, sessionStatusDisabled); err != nil {
+		return err
+	}
+	s, ok := m.Get(id)
+	if ok {
+		s.teardownAllCalls()
+		s.client.Disconnect()
+	}
+	m.unregister(id)
+	m.broker.emitSessionList(m.infos())
+	return nil
 }
 
 func (m *SessionManager) Delete(ctx context.Context, id string) error {
@@ -204,6 +275,7 @@ func (m *SessionManager) Logout(ctx context.Context, id string) error {
 	}
 	s.replaceClient(whatsmeow.NewClient(m.container.NewDevice(), m.waLogger))
 	_ = m.store.setJID(ctx, id, "")
+	s.setStatus(sessionStatusDisconnected)
 	s.setAuth(AuthSnapshot{State: "logged_out", Paired: false})
 	m.log.Info("session disconnected", "session", id)
 	return nil

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -22,10 +23,10 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/auth/me", s.handleMe)
 	mux.HandleFunc("POST /api/auth/reseed", s.handleReseed)
 
-	mux.Handle("GET /api/users", withAuth(http.HandlerFunc(s.handleUserList)))
-	mux.Handle("POST /api/users", withAuth(http.HandlerFunc(s.handleUserCreate)))
-	mux.Handle("PUT /api/users/{id}", withAuth(http.HandlerFunc(s.handleUserUpdate)))
-	mux.Handle("DELETE /api/users/{id}", withAuth(http.HandlerFunc(s.handleUserDelete)))
+	mux.Handle("GET /api/users", withRole(rolePlatformAdmin)(http.HandlerFunc(s.handleUserList)))
+	mux.Handle("POST /api/users", withRole(rolePlatformAdmin)(http.HandlerFunc(s.handleUserCreate)))
+	mux.Handle("PUT /api/users/{id}", withRole(rolePlatformAdmin)(http.HandlerFunc(s.handleUserUpdate)))
+	mux.Handle("DELETE /api/users/{id}", withRole(rolePlatformAdmin)(http.HandlerFunc(s.handleUserDelete)))
 
 	mux.Handle("GET /api/sessions", withAuth(http.HandlerFunc(s.handleSessionList)))
 	mux.Handle("POST /api/sessions", withAuth(http.HandlerFunc(s.handleSessionCreate)))
@@ -45,6 +46,17 @@ func (s *server) routes() http.Handler {
 
 	mux.Handle("GET /api/dashboard", withAuth(http.HandlerFunc(s.handleDashboard)))
 
+	// Superadmin platform management
+	platform := withRole(rolePlatformAdmin)
+	mux.Handle("GET /api/platform/clients", platform(http.HandlerFunc(s.handlePlatformClientList)))
+	mux.Handle("POST /api/platform/clients", platform(http.HandlerFunc(s.handlePlatformClientCreate)))
+	mux.Handle("GET /api/platform/clients/{clientId}", platform(http.HandlerFunc(s.handlePlatformClientGet)))
+	mux.Handle("PUT /api/platform/clients/{clientId}", platform(http.HandlerFunc(s.handlePlatformClientUpdate)))
+	mux.Handle("DELETE /api/platform/clients/{clientId}", platform(http.HandlerFunc(s.handlePlatformClientDelete)))
+	mux.Handle("PATCH /api/platform/clients/{clientId}/status", platform(http.HandlerFunc(s.handlePlatformClientStatus)))
+	mux.Handle("PATCH /api/platform/clients/{clientId}/limits", platform(http.HandlerFunc(s.handlePlatformClientLimits)))
+
+	// Backwards-compatible per-channel API (authenticated with the channel token)
 	channel := func(h http.Handler) http.Handler {
 		return withChannelAuth(withSession(s, h))
 	}
@@ -54,6 +66,21 @@ func (s *server) routes() http.Handler {
 	mux.Handle("GET /api/channels/{id}/recordings", channel(http.HandlerFunc(s.handleChannelRecordings)))
 	mux.Handle("DELETE /api/channels/{id}/calls/{callId}", channel(http.HandlerFunc(s.handleChannelEndCall)))
 	mux.Handle("POST /api/channels/{id}/webhook", channel(http.HandlerFunc(s.handleChannelWebhook)))
+
+	// CRM API (authenticated with session id + token)
+	crm := func(h http.Handler) http.Handler {
+		return withSessionToken(s, h)
+	}
+	mux.Handle("GET /api/v1/sessions/{id}", crm(http.HandlerFunc(s.handleCRMStatus)))
+	mux.Handle("GET /api/v1/sessions/{id}/status", crm(http.HandlerFunc(s.handleCRMStatus)))
+	mux.Handle("POST /api/v1/sessions/{id}/calls", crm(http.HandlerFunc(s.handleCRMCall)))
+	mux.Handle("GET /api/v1/sessions/{id}/calls", crm(http.HandlerFunc(s.handleCRMCalls)))
+	mux.Handle("GET /api/v1/sessions/{id}/calls/{callId}", crm(http.HandlerFunc(s.handleCRMCallGet)))
+	mux.Handle("DELETE /api/v1/sessions/{id}/calls/{callId}", crm(http.HandlerFunc(s.handleCRMEndCall)))
+	mux.Handle("GET /api/v1/sessions/{id}/history", crm(http.HandlerFunc(s.handleCRMHistory)))
+	mux.Handle("GET /api/v1/sessions/{id}/recordings", crm(http.HandlerFunc(s.handleCRMRecordings)))
+	mux.Handle("GET /api/v1/sessions/{id}/recordings/{recordingId}", crm(http.HandlerFunc(s.handleCRMRecordingGet)))
+	mux.Handle("PUT /api/v1/sessions/{id}/webhook", crm(http.HandlerFunc(s.handleCRMWebhook)))
 
 	if s.staticDir != "" {
 		if _, err := os.Stat(s.staticDir); err == nil {
@@ -66,8 +93,8 @@ func (s *server) routes() http.Handler {
 func withCORS(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Client-Id, Authorization")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Client-Id, Authorization, X-Session-Id, X-Session-Token, X-Channel-Token")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -89,9 +116,14 @@ func clientID(r *http.Request) string {
 	return r.URL.Query().Get("clientId")
 }
 
-func (s *server) sessionByID(w http.ResponseWriter, sid string) *Session {
+func (s *server) sessionByID(w http.ResponseWriter, r *http.Request) *Session {
+	sid := r.PathValue("sid")
 	sess, ok := s.sessions.Get(sid)
 	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such session"})
+		return nil
+	}
+	if scope := s.userClientScope(r); scope != "" && scope != sess.clientID {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such session"})
 		return nil
 	}
@@ -102,28 +134,90 @@ func (s *server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	s.broker.serveSSE(w, r, clientID(r))
 }
 
+// userClientScope returns the client id a client_admin is restricted to, or ""
+// for platform admins (no restriction).
+func (s *server) userClientScope(r *http.Request) string {
+	claims := userClaims(r)
+	if claims == nil || claims.Role != roleClientAdmin {
+		return ""
+	}
+	return claims.ClientID
+}
+
 func (s *server) handleSessionList(w http.ResponseWriter, r *http.Request) {
+	scope := s.userClientScope(r)
+	if scope != "" {
+		rows, err := s.sessions.store.listByClient(r.Context(), scope)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		out := make([]SessionInfo, 0, len(rows))
+		for _, row := range rows {
+			info := SessionInfo{
+				ID: row.ID, ClientID: row.ClientID, Name: row.Name, JID: row.JID,
+				PhoneNumber: row.PhoneNumber, Webhook: row.Webhook,
+				TokenConfigured: row.TokenHash != "",
+			}
+			if sess, ok := s.sessions.Get(row.ID); ok {
+				info = sess.info()
+			} else {
+				info.State = row.Status
+				info.Paired = row.JID != ""
+			}
+			out = append(out, info)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"sessions": out})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": s.sessions.infos()})
 }
 
 func (s *server) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name string `json:"name"`
+		Name     string `json:"name"`
+		ClientID string `json:"clientId"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	name := strings.TrimSpace(body.Name)
 	if name == "" {
 		name = "Session"
 	}
-	id, token, err := s.sessions.Create(name)
+	clientID := body.ClientID
+	if clientID == "" {
+		clientID = s.userClientScope(r)
+	}
+	if clientID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "clientId required for platform admins"})
+		return
+	}
+	// a client_admin may only create sessions for its own client
+	if scope := s.userClientScope(r); scope != "" && scope != clientID {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+	id, token, err := s.sessions.Create(clientID, name)
 	if err != nil {
+		if errors.Is(err, ErrSessionLimitReached) {
+			writeJSON(w, http.StatusTooManyRequests, map[string]string{
+				"error":   "session_limit_reached",
+				"message": "el límite de sesiones del cliente fue alcanzado",
+			})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"id": id, "token": token})
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"session":     map[string]string{"id": id, "name": name, "status": sessionStatusPending},
+		"credentials": map[string]string{"sessionId": id, "token": token},
+	})
 }
 
 func (s *server) handleSessionDelete(w http.ResponseWriter, r *http.Request) {
+	if s.sessionByID(w, r) == nil {
+		return
+	}
 	if err := s.sessions.Delete(r.Context(), r.PathValue("sid")); err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
@@ -132,6 +226,9 @@ func (s *server) handleSessionDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleSessionLogout(w http.ResponseWriter, r *http.Request) {
+	if s.sessionByID(w, r) == nil {
+		return
+	}
 	if err := s.sessions.Logout(r.Context(), r.PathValue("sid")); err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
@@ -140,6 +237,9 @@ func (s *server) handleSessionLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleSessionPair(w http.ResponseWriter, r *http.Request) {
+	if s.sessionByID(w, r) == nil {
+		return
+	}
 	if err := s.sessions.Pair(r.PathValue("sid")); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -148,37 +248,37 @@ func (s *server) handleSessionPair(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleStartCall(w http.ResponseWriter, r *http.Request) {
-	if sess := s.sessionByID(w, r.PathValue("sid")); sess != nil {
+	if sess := s.sessionByID(w, r); sess != nil {
 		s.doStartCall(sess, w, r)
 	}
 }
 
 func (s *server) handleWebRTC(w http.ResponseWriter, r *http.Request) {
-	if sess := s.sessionByID(w, r.PathValue("sid")); sess != nil {
+	if sess := s.sessionByID(w, r); sess != nil {
 		s.doWebRTC(sess, w, r)
 	}
 }
 
 func (s *server) handleAccept(w http.ResponseWriter, r *http.Request) {
-	if sess := s.sessionByID(w, r.PathValue("sid")); sess != nil {
+	if sess := s.sessionByID(w, r); sess != nil {
 		s.doAccept(sess, w, r)
 	}
 }
 
 func (s *server) handleReject(w http.ResponseWriter, r *http.Request) {
-	if sess := s.sessionByID(w, r.PathValue("sid")); sess != nil {
+	if sess := s.sessionByID(w, r); sess != nil {
 		s.doReject(sess, w, r)
 	}
 }
 
 func (s *server) handleEndCall(w http.ResponseWriter, r *http.Request) {
-	if sess := s.sessionByID(w, r.PathValue("sid")); sess != nil {
+	if sess := s.sessionByID(w, r); sess != nil {
 		s.doEndCall(sess, w, r)
 	}
 }
 
 func (s *server) handleHistory(w http.ResponseWriter, r *http.Request) {
-	if sess := s.sessionByID(w, r.PathValue("sid")); sess != nil {
+	if sess := s.sessionByID(w, r); sess != nil {
 		writeJSON(w, http.StatusOK, map[string]any{"rows": s.broker.historyRows(sess.id, 50)})
 	}
 }
@@ -313,8 +413,8 @@ func normalizePhone(p string) string {
 }
 
 func (s *server) handleRecordingsList(w http.ResponseWriter, r *http.Request) {
-	if sess := s.sessionByID(w, r.PathValue("sid")); sess != nil {
-		rows, err := s.sessions.recStore.listBySession(r.Context(), sess.id)
+	if sess := s.sessionByID(w, r); sess != nil {
+		rows, err := s.sessions.recStore.listBySession(r.Context(), sess.id, sess.clientID)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -328,6 +428,13 @@ func (s *server) handleRecordingDownload(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "recording not found"})
 		return
+	}
+	if scope := s.userClientScope(r); scope != "" {
+		sess, ok := s.sessions.Get(rec.SessionID)
+		if !ok || sess.clientID != scope {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "recording not found"})
+			return
+		}
 	}
 	if _, err := os.Stat(rec.FilePath); os.IsNotExist(err) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "file not found"})

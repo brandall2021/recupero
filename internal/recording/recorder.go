@@ -9,18 +9,18 @@ import (
 )
 
 const (
-	sampleRate = 16000
-	channels   = 1
+	sampleRate    = 16000
+	channels      = 1
 	bitsPerSample = 16
 )
 
 type Recorder struct {
-	mu       sync.Mutex
-	file     *os.File
-	path     string
-	started  time.Time
-	samples  int64
-	closed   bool
+	mu      sync.Mutex
+	file    *os.File
+	path    string
+	started time.Time
+	samples int64
+	closed  bool
 }
 
 func NewRecorder(path string) (*Recorder, error) {
