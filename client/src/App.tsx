@@ -10,6 +10,7 @@ import { NotesPage } from "@/pages/NotesPage";
 import { RecordingsPage } from "@/pages/RecordingsPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { UsersPage } from "@/pages/UsersPage";
+import { ClientsPage } from "@/pages/ClientsPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { SessionPairing } from "@/components/domain/session/SessionPairing";
 import { SessionHeader } from "@/components/domain/session/SessionHeader";
@@ -53,42 +54,43 @@ export const App = () => {
   return (
     <TooltipProvider delayDuration={200}>
       <AppShell page={page} onSetPage={setPage}>
-        {sessions.length === 0 ? (
-          <EmptyState
+        {active && (
+          <div className="flex items-center justify-between">
+            <SessionHeader session={active} />
+            <div className="flex items-center gap-2">
+              <Globe className="h-4 w-4 text-muted-foreground" />
+              <select
+                value={locale}
+                onChange={(e) => setLocale(e.target.value as Locale)}
+                className="h-8 rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                {locales.map((l) => (
+                  <option key={l} value={l}>{l.toUpperCase()}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+        <div className="space-y-6">
+          {page === "dashboard" && <DashboardPage />}
+          {page === "calls" && (
+            active?.paired ? <CallsPage sid={active.id} /> : active ? <SessionPairing session={active} /> : <EmptyState
+              icon={<PlusCircle className="h-6 w-6" />}
+              title={t("no_accounts")}
+              description={t("no_accounts_desc")}
+            />
+          )}
+          {page === "contacts" && <ContactsPage />}
+          {page === "schedule" && <SchedulePage />}
+          {page === "notes" && <NotesPage />}
+          {page === "recordings" && (active ? <RecordingsPage sid={active.id} /> : <EmptyState
             icon={<PlusCircle className="h-6 w-6" />}
             title={t("no_accounts")}
             description={t("no_accounts_desc")}
-          />
-        ) : (
-          <div className="space-y-6">
-            {active && (
-              <div className="flex items-center justify-between">
-                <SessionHeader session={active} />
-                <div className="flex items-center gap-2">
-                  <Globe className="h-4 w-4 text-muted-foreground" />
-                  <select
-                    value={locale}
-                    onChange={(e) => setLocale(e.target.value as Locale)}
-                    className="h-8 rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  >
-                    {locales.map((l) => (
-                      <option key={l} value={l}>{l.toUpperCase()}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            )}
-            {page === "dashboard" && <DashboardPage />}
-            {page === "calls" && (
-              active?.paired ? <CallsPage sid={active.id} /> : active ? <SessionPairing session={active} /> : null
-            )}
-            {page === "contacts" && <ContactsPage />}
-            {page === "schedule" && <SchedulePage />}
-            {page === "notes" && <NotesPage />}
-            {page === "recordings" && active && <RecordingsPage sid={active.id} />}
-            {page === "users" && <UsersPage />}
-          </div>
-        )}
+          />)}
+          {page === "users" && <UsersPage />}
+          {page === "clients" && <ClientsPage />}
+        </div>
       </AppShell>
       <IncomingCallModal />
       <Toaster theme={theme} position="top-right" richColors closeButton />

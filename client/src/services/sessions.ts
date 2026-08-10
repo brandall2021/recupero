@@ -5,8 +5,11 @@ import type { SessionInfo } from "@/types/session";
 export const listSessions = () =>
   apiGet<{ sessions: SessionInfo[] }>("/api/sessions").then((r) => r.sessions ?? []);
 
-export const createSession = (name: string) =>
-  apiPost<{ id: string }>("/api/sessions", { name });
+export const createSession = (name: string, clientId?: string) =>
+  apiPost<{
+    session: { id: string; name: string; status: string };
+    credentials: { sessionId: string; token: string };
+  }>("/api/sessions", clientId ? { name, clientId } : { name }).then((r) => r.session);
 
 export const deleteSession = (id: string) => apiDelete(`/api/sessions/${id}`);
 

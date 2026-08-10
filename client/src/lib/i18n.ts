@@ -128,6 +128,33 @@ type TranslationKeys = {
   delete: string;
   cancel: string;
   password: string;
+  // Roles / clients
+  role_label: string;
+  role_platform: string;
+  role_client: string;
+  select_role: string;
+  select_client: string;
+  client_for: string;
+  // Clients
+  clients_nav: string;
+  clients_management: string;
+  new_client: string;
+  edit_client: string;
+  no_clients: string;
+  no_clients_desc: string;
+  client_name: string;
+  client_slug: string;
+  max_sessions: string;
+  sessions_used: string;
+  admin_email: string;
+  admin_name: string;
+  admin_password: string;
+  status: string;
+  status_active: string;
+  status_suspended: string;
+  status_disabled: string;
+  delete_client_warn: string;
+  session_client: string;
   // Footer
   accounts: string;
   theme: string;
@@ -248,6 +275,31 @@ const translations: Record<Locale, TranslationKeys> = {
     delete: "Delete",
     cancel: "Cancel",
     password: "Password",
+    role_label: "Role",
+    role_platform: "Platform admin",
+    role_client: "Client admin",
+    select_role: "Select role",
+    select_client: "Select client",
+    client_for: "Client",
+    clients_nav: "Clients",
+    clients_management: "Clients",
+    new_client: "New client",
+    edit_client: "Edit client",
+    no_clients: "No clients",
+    no_clients_desc: "Create the first client from the button above.",
+    client_name: "Company name",
+    client_slug: "Slug",
+    max_sessions: "Max sessions",
+    sessions_used: "{used} of {max} sessions used",
+    admin_email: "Admin email",
+    admin_name: "Admin name",
+    admin_password: "Admin password",
+    status: "Status",
+    status_active: "Active",
+    status_suspended: "Suspended",
+    status_disabled: "Disabled",
+    delete_client_warn: "This will permanently delete the client and all its sessions and users.",
+    session_client: "Client",
     accounts: "Accounts",
     theme: "Theme",
     language: "Language",
@@ -365,6 +417,31 @@ const translations: Record<Locale, TranslationKeys> = {
     delete: "Eliminar",
     cancel: "Cancelar",
     password: "Contraseña",
+    role_label: "Rol",
+    role_platform: "Administrador de plataforma",
+    role_client: "Administrador de cliente",
+    select_role: "Seleccionar rol",
+    select_client: "Seleccionar cliente",
+    client_for: "Cliente",
+    clients_nav: "Clientes",
+    clients_management: "Clientes",
+    new_client: "Nuevo cliente",
+    edit_client: "Editar cliente",
+    no_clients: "Sin clientes",
+    no_clients_desc: "Creá el primer cliente desde el botón de arriba.",
+    client_name: "Nombre de la empresa",
+    client_slug: "Slug",
+    max_sessions: "Máximo de sesiones",
+    sessions_used: "{used} de {max} sesiones usadas",
+    admin_email: "Email del admin",
+    admin_name: "Nombre del admin",
+    admin_password: "Contraseña del admin",
+    status: "Estado",
+    status_active: "Activo",
+    status_suspended: "Suspendido",
+    status_disabled: "Deshabilitado",
+    delete_client_warn: "Esto eliminará permanentemente el cliente y todas sus sesiones y usuarios.",
+    session_client: "Cliente",
     accounts: "Cuentas",
     theme: "Tema",
     language: "Idioma",
@@ -482,6 +559,31 @@ const translations: Record<Locale, TranslationKeys> = {
     delete: "Excluir",
     cancel: "Cancelar",
     password: "Senha",
+    role_label: "Função",
+    role_platform: "Administrador da plataforma",
+    role_client: "Administrador do cliente",
+    select_role: "Selecionar função",
+    select_client: "Selecionar cliente",
+    client_for: "Cliente",
+    clients_nav: "Clientes",
+    clients_management: "Clientes",
+    new_client: "Novo cliente",
+    edit_client: "Editar cliente",
+    no_clients: "Sem clientes",
+    no_clients_desc: "Crie o primeiro cliente no botão acima.",
+    client_name: "Nome da empresa",
+    client_slug: "Slug",
+    max_sessions: "Máximo de sessões",
+    sessions_used: "{used} de {max} sessões usadas",
+    admin_email: "Email do admin",
+    admin_name: "Nome do admin",
+    admin_password: "Senha do admin",
+    status: "Status",
+    status_active: "Ativo",
+    status_suspended: "Suspenso",
+    status_disabled: "Desabilitado",
+    delete_client_warn: "Isso excluirá permanentemente o cliente e todas as suas sessões e usuários.",
+    session_client: "Cliente",
     accounts: "Contas",
     theme: "Tema",
     language: "Idioma",

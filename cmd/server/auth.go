@@ -388,15 +388,33 @@ func (s *server) handleUserList(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Email    string `json:"email"`
-		Name     string `json:"name"`
-		Password string `json:"password"`
+		Email    string  `json:"email"`
+		Name     string  `json:"name"`
+		Password string  `json:"password"`
+		Role     string  `json:"role"`
+		ClientID *string `json:"clientId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Email) == "" || body.Password == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email and password required"})
 		return
 	}
-	id, err := s.auth.Register(r.Context(), body.Email, body.Name, body.Password)
+	role := strings.TrimSpace(body.Role)
+	if role == "" {
+		role = roleClientAdmin
+	}
+	if role != rolePlatformAdmin && role != roleClientAdmin {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid role"})
+		return
+	}
+	var clientID *string
+	if body.ClientID != nil && *body.ClientID != "" {
+		clientID = body.ClientID
+		if _, err := s.clients.get(r.Context(), *clientID); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "client not found"})
+			return
+		}
+	}
+	id, err := s.auth.RegisterForClient(r.Context(), body.Email, body.Name, body.Password, role, clientID)
 	if err != nil {
 		code := http.StatusInternalServerError
 		if errors.Is(err, ErrUserExists) {
@@ -405,9 +423,11 @@ func (s *server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, code, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"user": map[string]any{"id": id, "email": strings.TrimSpace(strings.ToLower(body.Email)), "name": body.Name, "role": roleClientAdmin},
-	})
+	out := map[string]any{"id": id, "email": strings.TrimSpace(strings.ToLower(body.Email)), "name": body.Name, "role": role}
+	if clientID != nil {
+		out["clientId"] = *clientID
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": out})
 }
 
 func (s *server) handleUserUpdatePassword(w http.ResponseWriter, r *http.Request) {

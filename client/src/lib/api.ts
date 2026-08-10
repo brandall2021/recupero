@@ -32,3 +32,17 @@ export const apiDelete = async (path: string): Promise<void> => {
   const r = await fetch(path, { method: "DELETE", headers: baseHeaders() });
   if (!r.ok) throw new Error(`${path} ${r.status}`);
 };
+
+const apiSend = async <T>(path: string, method: string, body: unknown): Promise<T> => {
+  const r = await fetch(path, { method, headers: baseHeaders(), body: JSON.stringify(body) });
+  if (!r.ok) {
+    const text = await r.text().catch(() => "");
+    throw new Error(`${path} ${r.status} ${text}`);
+  }
+  if (r.status === 204) return undefined as T;
+  return r.json() as Promise<T>;
+};
+
+export const apiPut = <T>(path: string, body: unknown) => apiSend<T>(path, "PUT", body);
+
+export const apiPatch = <T>(path: string, body: unknown) => apiSend<T>(path, "PATCH", body);

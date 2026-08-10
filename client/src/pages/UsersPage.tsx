@@ -9,23 +9,30 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { useI18n } from "@/lib/i18n";
 import { apiGet, apiPost, apiDelete } from "@/lib/api";
 import { useAuth } from "@/stores/auth";
+import { listClients } from "@/services/clients";
+import type { ClientInfo } from "@/types/client";
 
 interface User {
   id: number;
   email: string;
   name: string;
+  role?: string;
+  clientId?: string;
 }
 
 export const UsersPage = () => {
   const t = useI18n((s) => s.t);
   const currentUser = useAuth((s) => s.user);
   const [users, setUsers] = useState<User[]>([]);
+  const [clients, setClients] = useState<ClientInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
   const [formEmail, setFormEmail] = useState("");
   const [formName, setFormName] = useState("");
   const [formPassword, setFormPassword] = useState("");
+  const [formRole, setFormRole] = useState("client_admin");
+  const [formClientId, setFormClientId] = useState("");
   const [error, setError] = useState("");
 
   const load = async () => {
@@ -40,13 +47,21 @@ export const UsersPage = () => {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { void load(); }, []);
+
+  useEffect(() => {
+    void listClients()
+      .then((c) => setClients(c))
+      .catch(() => {});
+  }, []);
 
   const openCreate = () => {
     setEditing(null);
     setFormEmail("");
     setFormName("");
     setFormPassword("");
+    setFormRole("client_admin");
+    setFormClientId("");
     setError("");
     setShowForm(true);
   };
@@ -56,6 +71,8 @@ export const UsersPage = () => {
     setFormEmail(u.email);
     setFormName(u.name);
     setFormPassword("");
+    setFormRole(u.role ?? "client_admin");
+    setFormClientId(u.clientId ?? "");
     setError("");
     setShowForm(true);
   };
@@ -76,7 +93,13 @@ export const UsersPage = () => {
           setError("Email y contraseña son obligatorios");
           return;
         }
-        await apiPost("/api/users", { email: formEmail, name: formName, password: formPassword });
+        await apiPost("/api/users", {
+          email: formEmail,
+          name: formName,
+          password: formPassword,
+          role: formRole,
+          clientId: formRole === "client_admin" && formClientId ? formClientId : undefined,
+        });
       }
       setShowForm(false);
       load();
@@ -147,6 +170,41 @@ export const UsersPage = () => {
                 </Label>
                 <Input id="password" type="password" value={formPassword} onChange={(e) => setFormPassword(e.target.value)} required={!editing} />
               </div>
+              {!editing && (
+                <>
+                  <div className="space-y-1">
+                    <Label htmlFor="role">{t("role_label")}</Label>
+                    <select
+                      id="role"
+                      value={formRole}
+                      onChange={(e) => {
+                        setFormRole(e.target.value);
+                        if (e.target.value === "platform_admin") setFormClientId("");
+                      }}
+                      className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    >
+                      <option value="client_admin">{t("role_client")}</option>
+                      <option value="platform_admin">{t("role_platform")}</option>
+                    </select>
+                  </div>
+                  {formRole === "client_admin" && (
+                    <div className="space-y-1">
+                      <Label htmlFor="client">{t("client_for")}</Label>
+                      <select
+                        id="client"
+                        value={formClientId}
+                        onChange={(e) => setFormClientId(e.target.value)}
+                        className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      >
+                        <option value="">{t("select_client")}</option>
+                        {clients.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </>
+              )}
               {error && <p className="text-sm text-destructive">{error}</p>}
               <div className="flex gap-2">
                 <Button type="submit" size="sm">{t("save")}</Button>
@@ -175,6 +233,11 @@ export const UsersPage = () => {
                   <p className="text-sm font-medium">{u.name || u.email}</p>
                   <p className="text-xs text-muted-foreground">{u.email}</p>
                 </div>
+                {u.role && (
+                  <Badge variant={u.role === "platform_admin" ? "secondary" : "muted"}>
+                    {t(u.role === "platform_admin" ? "role_platform" : "role_client")}
+                  </Badge>
+                )}
                 {currentUser?.id === u.id && (
                   <Badge variant="success">{t("you")}</Badge>
                 )}

@@ -1,17 +1,19 @@
-import { useState } from "react";
-import { Loader2, Plus, Trash2, Phone, Users, CalendarDays, StickyNote, Mic, LogOut, LayoutDashboard, Shield, KeyRound, Copy, Check } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Loader2, Plus, Trash2, Phone, Users, CalendarDays, StickyNote, Mic, LogOut, LayoutDashboard, Shield, Building2, KeyRound, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { setActiveSession, useSessions } from "@/stores/sessions";
 import { createSession, deleteSession } from "@/services/sessions";
+import { listClients } from "@/services/clients";
 import { useAuth } from "@/stores/auth";
 import { useI18n } from "@/lib/i18n";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { SessionInfo, SessionState } from "@/types/session";
+import type { ClientInfo } from "@/types/client";
 
-export type PageId = "dashboard" | "calls" | "contacts" | "schedule" | "notes" | "recordings" | "users";
+export type PageId = "dashboard" | "calls" | "contacts" | "schedule" | "notes" | "recordings" | "users" | "clients";
 
 const dotClass: Record<SessionState, string> = {
   open: "bg-primary",
@@ -20,14 +22,15 @@ const dotClass: Record<SessionState, string> = {
   logged_out: "bg-destructive",
 };
 
-const navItems: { id: PageId; icon: typeof Phone; labelKey: string }[] = [
+const navItems: { id: PageId; icon: typeof Phone; labelKey: string; adminOnly?: boolean }[] = [
   { id: "dashboard", icon: LayoutDashboard, labelKey: "dashboard_nav" },
   { id: "calls", icon: Phone, labelKey: "calls_nav" },
   { id: "contacts", icon: Users, labelKey: "contacts_nav" },
   { id: "schedule", icon: CalendarDays, labelKey: "schedule_nav" },
   { id: "notes", icon: StickyNote, labelKey: "notes_nav" },
   { id: "recordings", icon: Mic, labelKey: "recordings_nav" },
-  { id: "users", icon: Shield, labelKey: "users_nav" },
+  { id: "clients", icon: Building2, labelKey: "clients_nav", adminOnly: true },
+  { id: "users", icon: Shield, labelKey: "users_nav", adminOnly: true },
 ];
 
 export const Sidebar = ({
@@ -43,10 +46,22 @@ export const Sidebar = ({
   const activeId = useSessions((s) => s.activeId);
   const t = useI18n((s) => s.t);
   const logout = useAuth((s) => s.logout);
+  const isPlatformAdmin = useAuth((s) => s.isPlatformAdmin());
   const [creating, setCreating] = useState(false);
   const [toDelete, setToDelete] = useState<SessionInfo | null>(null);
   const [creds, setCreds] = useState<SessionInfo | null>(null);
   const [copied, setCopied] = useState(false);
+  const [newOpen, setNewOpen] = useState(false);
+  const [clients, setClients] = useState<ClientInfo[]>([]);
+  const [newClientId, setNewClientId] = useState("");
+
+  useEffect(() => {
+    if (isPlatformAdmin) {
+      void listClients()
+        .then((c) => setClients(c))
+        .catch(() => {});
+    }
+  }, [isPlatformAdmin]);
 
   const copyToken = async () => {
     if (!creds?.token) return;
@@ -55,16 +70,25 @@ export const Sidebar = ({
     setTimeout(() => setCopied(false), 1500);
   };
 
-  const onNew = async () => {
+  const doCreate = async (clientId?: string) => {
     setCreating(true);
     try {
-      const { id } = await createSession("WhatsApp");
-      setActiveSession(id);
+      const session = await createSession("WhatsApp", clientId);
+      setActiveSession(session.id);
       onNavigate?.();
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
       setCreating(false);
+    }
+  };
+
+  const onNew = () => {
+    if (isPlatformAdmin) {
+      setNewClientId(clients[0]?.id ?? "");
+      setNewOpen(true);
+    } else {
+      void doCreate();
     }
   };
 
@@ -81,10 +105,12 @@ export const Sidebar = ({
     onNavigate?.();
   };
 
+  const items = isPlatformAdmin ? navItems : navItems.filter((i) => !i.adminOnly);
+
   return (
     <div className="flex h-full flex-col gap-2 p-3">
       <div className="space-y-1">
-        {navItems.map((item) => (
+        {items.map((item) => (
           <button
             key={item.id}
             onClick={() => nav(item.id)}
@@ -123,6 +149,11 @@ export const Sidebar = ({
             <div className="min-w-0 flex-1">
               <p className="truncate font-medium">{s.name}</p>
               {s.jid && <p className="truncate text-xs text-muted-foreground">{s.jid.split("@")[0]}</p>}
+              {isPlatformAdmin && s.clientId && (
+                <p className="truncate text-xs text-muted-foreground">
+                  {clients.find((c) => c.id === s.clientId)?.name ?? s.clientId.slice(0, 8)}
+                </p>
+              )}
             </div>
             <button
               onClick={(e) => {
@@ -157,6 +188,40 @@ export const Sidebar = ({
         <LogOut className="h-4 w-4" />
         {t("logout")}
       </Button>
+
+      <Dialog open={newOpen} onOpenChange={(o) => !o && setNewOpen(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t("new_session")}</DialogTitle>
+            <DialogDescription>{t("select_client")}</DialogDescription>
+          </DialogHeader>
+          {clients.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("no_clients")}</p>
+          ) : (
+            <div className="space-y-4">
+              <select
+                value={newClientId}
+                onChange={(e) => setNewClientId(e.target.value)}
+                className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              <Button
+                className="w-full"
+                disabled={!newClientId}
+                onClick={() => {
+                  setNewOpen(false);
+                  void doCreate(newClientId);
+                }}
+              >
+                {t("new_session")}
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!creds} onOpenChange={(o) => !o && setCreds(null)}>
         <DialogContent className="max-w-md">
