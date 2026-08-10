@@ -37,9 +37,10 @@ mantener **varias llamadas 1:1 simultáneas** — una por cada operador del nave
 enrutadas independientemente por ID de llamada.
 
 > **Estado:** estable. Llamadas salientes y entrantes 1:1 alcanzan `ACTIVE` con audio
-> bidireccional, grabación server-side WAV, autenticación JWT, canales con id + token y
-> API externa con webhook de eventos, y PostgreSQL para persistencia de sesiones,
-> usuarios y grabaciones.
+> bidireccional, grabación server-side WAV, autenticación JWT, canales con id + token,
+> API externa con webhook de eventos, **multiempresa** (clientes con límites de sesiones
+> y aislamiento por rol) y PostgreSQL para persistencia de sesiones, usuarios, clientes
+> y grabaciones.
 
 ---
 
@@ -49,10 +50,11 @@ enrutadas independientemente por ID de llamada.
 - Registro e inicio de sesión con email + contraseña
 - JWT (HS256, expiración 72h) para todas las rutas protegidas
 - Ruta `GET /api/auth/me` para obtener el usuario actual
+- Roles en el token JWT: `platform_admin` (acceso completo) y `client_admin` (solo su empresa)
 - Usuarios de prueba precargados (seed automático al iniciar — se resetean en cada reinicio):
-  - `admin@wacalls.com` / `admin123` — Administrador
-  - `operador@wacalls.com` / `operador123` — Operador
-  - `demo@wacalls.com` / `demo123` — Demo
+  - `admin@wacalls.com` / `admin123` — Administrador de plataforma
+  - `operador@wacalls.com` / `operador123` — Operador (client_admin sin empresa)
+  - `demo@wacalls.com` / `demo123` — Demo (client_admin sin empresa)
 - Variable de entorno `JWT_SECRET` para firmar tokens (default: `wacalls-default-secret-change-me`)
 
 ### 👤 Gestión de usuarios
@@ -60,14 +62,25 @@ enrutadas independientemente por ID de llamada.
 - Cambio de contraseña (reset) desde el panel de administración
 - Edición de nombre
 - El usuario actual no puede eliminarse a sí mismo
-- API: `GET /api/users`, `POST /api/users`, `PUT /api/users/{id}`, `DELETE /api/users/{id}`
+- Roles: `platform_admin` (administra la plataforma completa) y `client_admin` (restringido a su empresa)
+- API: `GET /api/users`, `POST /api/users`, `PUT /api/users/{id}`, `DELETE /api/users/{id}` (solo `platform_admin`)
 - Panel accesible desde la barra lateral (icono Shield)
+
+### 🏢 Multiempresa (multi-tenant)
+- Tabla `clients` (empresas/arrendatarios) con **nombre, slug, estado** (`active`/`suspended`/`disabled`) y **límite de sesiones** (`max_sessions`)
+- Cada **cliente tiene un límite de sesiones WhatsApp**; al superarlo la creación responde `429 session_limit_reached`
+- Usuarios `client_admin` ligados a una empresa (`client_id`); su sesión no puede operar cuentas de otra empresa
+- Un `client_admin` solo ve y gestiona **sus propios canales, llamadas, grabaciones e historial**
+- Empresas suspendidas/deshabilitadas: sus admins **no pueden iniciar sesión** y sus canales CRM quedan bloqueados
+- API de administración: `GET/POST/PUT/DELETE /api/platform/clients/*`, `PATCH .../status`, `PATCH .../limits` (solo `platform_admin`)
+- API CRM por sesión: `/api/v1/sessions/{id}/*` autenticada con `id + token` del canal (ver [API CRM](#api-crm-por-sesin-requiere-id--token-del-canal))
 
 ### 🔑 Canales con id + token
 - Cada canal (sesión WhatsApp) tiene su propio **`id`** y **`token`** (48 hex, generados al crear)
-- El token se devuelve en `POST /api/sessions` (`{ id, token }`) y en el listado `GET /api/sessions` (campo `token`)
+- El token se devuelve en `POST /api/sessions` (`credentials: { sessionId, token }`) y en el listado `GET /api/sessions` (campo `token`)
 - Los canales existentes reciben token automáticamente al reiniciar el servidor (migración automática)
-- Permite que un **sistema externo consuma/exponga el canal por HTTP** (ver [API externa de canales](#api-externa-de-canales-requiere-token-del-canal))
+- Cada canal pertenece a un **cliente** (`client_id`); un `platform_admin` puede asignarlo a cualquier empresa y un `client_admin` solo a la suya
+- Permite que un **sistema externo consuma/exponga el canal por HTTP** (ver [API externa de canales](#api-externa-de-canales-requiere-token-del-canal) y [API CRM](#api-crm-por-sesin-requiere-id--token-del-canal))
 - **Visualización en el cliente**: cada canal de la barra lateral tiene un ícono de llave que abre un diálogo con su `id` y `token` y botón **Copiar** (traducido en es/en/pt)
 
 ### 🔔 Webhook de eventos por canal
@@ -155,9 +168,10 @@ enrutadas independientemente por ID de llamada.
 │  SessionManager   registro de cuentas (client + CallManager + bridge)    │
 │  Broker           hub SSE (sesiones, auth, ciclo de vida de llamadas)    │
 │  Bridge           puente pion WebRTC (PCM 16 kHz ⇄ call core)          │
-│  AuthStore        usuarios + JWT (bcrypt + HS256)                       │
+│  AuthStore        usuarios + JWT + roles (bcrypt + HS256)                │
+│  ClientStore      clientes/empresas multi-tenant (límites, estados)      │
 │  RecordingStore   grabaciones WAV server-side (PostgreSQL)              │
-│  PostgreSQL       sesiones, usuarios, grabaciones                        │
+│  PostgreSQL       sesiones, usuarios, clientes, grabaciones              │
 │                                                                          │
 │  internal/wa      adaptador VoipSocket sobre whatsmeow                   │
 │  internal/voip    call · signaling · media · transport · core · wanode   │
@@ -177,9 +191,12 @@ enrutadas independientemente por ID de llamada.
 |---|---|
 | `cmd/server` | Broker HTTP/SSE, gestor de sesiones, puente WebRTC, auth, grabaciones |
 | `cmd/server/auth.go` | Store de usuarios (PostgreSQL), bcrypt, JWT, handlers login/register/me |
-| `cmd/server/auth_middleware.go` | Middleware `withAuth` — valida JWT en todas las rutas protegidas |
+| `cmd/server/auth_middleware.go` | Middleware `withAuth` + `withRole` — valida JWT y roles en rutas protegidas |
+| `cmd/server/clientstore.go` | Store de clientes (empresas) PostgreSQL — límites, estados, creación con admin |
+| `cmd/server/platformapi.go` | API de administración multiempresa `/api/platform/clients/*` (solo `platform_admin`) |
 | `cmd/server/dashboard.go` | Endpoint `GET /api/dashboard` — stats agregadas + historial reciente |
 | `cmd/server/channelapi.go` | API externa de canales — autenticación por token de canal (`/api/channels/{id}/*`) |
+| `cmd/server/crmapi.go` | API CRM por sesión (`/api/v1/sessions/{id}/*`) — autenticación id + token del canal |
 | `cmd/server/webhook.go` | Cliente HTTP de webhook de eventos por canal |
 | `cmd/server/recordingstore.go` | Store de grabaciones PostgreSQL |
 | `internal/recording` | WAV writer 16 kHz mono PCM, header finalization |
@@ -244,7 +261,7 @@ principio a fin. Secuencia de llamada saliente:
 
 - **Go 1.26+**
 - **Node 22+** y **npm** (solo para compilar/ejecutar el cliente React)
-- **PostgreSQL** (para sesiones, usuarios y grabaciones)
+- **PostgreSQL** (para sesiones, usuarios, clientes y grabaciones)
 
 No se necesita compilador C, cgo ni bibliotecas nativas — el códec MLow es Go
 puro vendoreado (`internal/voip/media/mlow`).
@@ -336,8 +353,8 @@ Todas las rutas requieren header `Authorization: Bearer <token>`.
 
 | Método | Ruta | Propósito |
 |---|---|---|
-| `GET` | `/api/sessions` | Listar cuentas (id, nombre, jid, estado, vinculada, token, webhook) |
-| `POST` | `/api/sessions` | Crear una cuenta e iniciar vinculación por QR — responde `{ id, token }` |
+| `GET` | `/api/sessions` | Listar cuentas (id, nombre, jid, estado, vinculada, token, webhook, clientId) |
+| `POST` | `/api/sessions` | Crear una cuenta (`{ name, clientId }`) e iniciar vinculación por QR — responde `{ session, credentials: { sessionId, token } }`. Un `client_admin` solo puede crear dentro de su empresa (omite `clientId`); un `platform_admin` debe indicarlo |
 | `DELETE` | `/api/sessions/{sid}` | Cerrar sesión y eliminar una cuenta |
 | `POST` | `/api/sessions/{sid}/logout` | Desconectar una cuenta (mantener para re-vinculación) |
 | `POST` | `/api/sessions/{sid}/pair` | Re-vincular una cuenta (emitir QR nuevo) |
@@ -350,11 +367,29 @@ Todas las rutas requieren header `Authorization: Bearer <token>`.
 | `GET` | `/api/sessions/{sid}/recordings` | Listar grabaciones de la sesión |
 | `GET` | `/api/recordings/{id}/download` | Descargar archivo WAV (`?token=<jwt>`) |
 | `GET` | `/api/dashboard` | Dashboard: stats agregadas + sesiones + llamadas recientes |
-| `GET` | `/api/users` | Listar usuarios |
-| `POST` | `/api/users` | Crear usuario (`{ email, name, password }`) |
-| `PUT` | `/api/users/{id}` | Actualizar usuario (`{ name?, password? }`) |
-| `DELETE` | `/api/users/{id}` | Eliminar usuario |
 | `GET` | `/api/events` | Eventos server-sent (`?token=<jwt>&clientId=<id>`) |
+
+> **Aislamiento:** un `client_admin` solo ve las sesiones, llamadas, historial y grabaciones
+> de su propia empresa. Si el límite `max_sessions` de la empresa está agotado, `POST
+> /api/sessions` responde `429 session_limit_reached`.
+
+### API de administración de clientes (requiere JWT `platform_admin`)
+
+Endpoints para gestionar empresas/arrendatarios y sus límites:
+
+| Método | Ruta | Propósito |
+|---|---|---|
+| `GET` | `/api/platform/clients` | Listar clientes (id, nombre, slug, estado, `maxSessions`, `usedSessions`, `availableSessions`) |
+| `POST` | `/api/platform/clients` | Crear cliente + admin (`{ name, slug?, maxSessions, admin: { name, email, password } }`) |
+| `GET` | `/api/platform/clients/{clientId}` | Detalle de un cliente |
+| `PUT` | `/api/platform/clients/{clientId}` | Actualizar nombre/slug/límite (`{ name?, slug?, maxSessions? }`) |
+| `DELETE` | `/api/platform/clients/{clientId}` | Eliminar cliente (y sus sesiones) |
+| `PATCH` | `/api/platform/clients/{clientId}/status` | Cambiar estado (`{ status: active \| suspended \| disabled }`) |
+| `PATCH` | `/api/platform/clients/{clientId}/limits` | Ajustar límite (`{ maxSessions }`); rechaza bajarlo por debajo del uso actual (`422 limit_below_current_usage`) |
+
+> Al crear un cliente se genera automáticamente su **admin `client_admin`**, que inicia
+> sesión y opera únicamente los canales de esa empresa. Un cliente `suspended` o
+> `disabled` impide el login de sus admins y bloquea su API CRM.
 
 ### API externa de canales (requiere token del canal)
 
@@ -379,6 +414,29 @@ Autenticación: header `X-Channel-Token: <token>` o `Authorization: Bearer <toke
 `call.ended` (payload: `type`, `channelId`, `channel`, `ts`, `callId`, `peer`,
 `direction`, `status`/`reason`). Incluye `X-Channel-Token` y `Authorization: Bearer`
 con el token del canal para que el receptor pueda validarlo.
+
+### API CRM por sesión (requiere id + token del canal)
+
+Variante pensada para CRMs que ya guardan el `id` y el `token` de un canal. La
+autenticación usa el par **`id` + token de la sesión** (no un JWT de usuario): el token
+se envía en `X-Session-Token`, `X-Channel-Token`, `Authorization: Bearer` o query `?token=`.
+
+| Método | Ruta | Propósito |
+|---|---|---|
+| `GET` | `/api/v1/sessions/{id}` | Estado de la sesión + su cliente (id, name, slug) |
+| `GET` | `/api/v1/sessions/{id}/status` | Alias de `GET /api/v1/sessions/{id}` |
+| `POST` | `/api/v1/sessions/{id}/calls` | Iniciar llamada saliente (`{ phone }`) |
+| `GET` | `/api/v1/sessions/{id}/calls` | Llamadas activas de la sesión |
+| `GET` | `/api/v1/sessions/{id}/calls/{callId}` | Detalle de una llamada activa |
+| `DELETE` | `/api/v1/sessions/{id}/calls/{callId}` | Finalizar una llamada activa |
+| `GET` | `/api/v1/sessions/{id}/history` | Historial de llamadas recientes (hasta 100) |
+| `GET` | `/api/v1/sessions/{id}/recordings` | Listar grabaciones de la sesión |
+| `GET` | `/api/v1/sessions/{id}/recordings/{recordingId}` | Detalle de una grabación |
+| `PUT` | `/api/v1/sessions/{id}/webhook` | Configurar webhook de eventos (`{ url }`) |
+
+Restricciones: si la sesión está `disabled` o su cliente no está `active`, todas las
+rutas responden `403`. La llamada saliente responde `503 session not connected` cuando
+el canal no está vinculado/conectado.
 
 ---
 
@@ -415,8 +473,9 @@ El cliente tiene 7 secciones accesibles desde la barra lateral:
 
 | Store | Base de datos | Contenido |
 |---|---|---|
-| `sessions` | PostgreSQL | Canales WhatsApp (id, name, jid, **token**, **webhook_url**) |
-| `users` | PostgreSQL | Usuarios del sistema (email, name, password bcrypt) |
+| `clients` | PostgreSQL | Empresas/arrendatarios (id, name, slug, status, max_sessions) |
+| `sessions` | PostgreSQL | Canales WhatsApp (id, client_id, name, jid, **token**, **webhook_url**) |
+| `users` | PostgreSQL | Usuarios del sistema (email, name, password bcrypt, **role**, **client_id**) |
 | `recordings` | PostgreSQL | Metadata de grabaciones WAV |
 | `/data/recordings/` | Disco | Archivos WAV de grabaciones |
 | whatsmeow store | PostgreSQL | Estado de sesiones WhatsApp (cifrado) |
@@ -427,7 +486,9 @@ El cliente tiene 7 secciones accesibles desde la barra lateral:
 ## Tests
 
 ```bash
-go test ./...                 # stack de media: SRTP, STUN, RTP, relay-ack, códec, estado
+# tests del server — requieren PostgreSQL
+export TEST_DATABASE_URL="postgresql://user:pass@host:5432/wacall2_test?sslmode=disable"
+go test ./...                 # stack de media + server (session store, límites multiempresa)
 cd client && npm run build    # type-check del cliente + build de producción
 ```
 
@@ -437,13 +498,15 @@ cd client && npm run build    # type-check del cliente + build de producción
 
 La API utiliza **JWT** para autenticación — todas las rutas `/api/*` (excepto
 `/api/auth/login` y `/api/auth/register`) requieren un token válido. Las rutas
-`/api/channels/{id}/*` en cambio se autentican con el **token del canal**
-(`X-Channel-Token` o `Authorization: Bearer`).
+`/api/channels/{id}/*` se autentican con el **token del canal** y `/api/v1/sessions/{id}/*`
+con el par **id + token del canal** (`X-Channel-Token`, `X-Session-Token` o `Authorization: Bearer`).
 
 - Los tokens JWT expiran a las 72 horas
 - Las contraseñas se almacenan con **bcrypt**
 - Las rutas de login/register son públicas (no envían token)
 - El EventSource (SSE) no se conecta sin token válido
+- **Roles**: `withRole` restringe la gestión de usuarios y de clientes al `platform_admin`
+- **Aislamiento multiempresa**: un `client_admin` solo accede a sesiones, llamadas, historial y grabaciones de su propia empresa; empresas `suspended`/`disabled` no pueden iniciar sesión ni operar por CRM
 - Cada canal tiene un token único de 48 hex; su validación usa comparación en tiempo constante
 - Configurá `JWT_SECRET` en producción para firmar tokens con un secreto seguro
 - PostgreSQL contiene credenciales de sesión de WhatsApp (secretos): **no lo subas a
