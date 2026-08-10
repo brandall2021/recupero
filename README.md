@@ -68,6 +68,7 @@ enrutadas independientemente por ID de llamada.
 - El token se devuelve en `POST /api/sessions` (`{ id, token }`) y en el listado `GET /api/sessions` (campo `token`)
 - Los canales existentes reciben token automáticamente al reiniciar el servidor (migración automática)
 - Permite que un **sistema externo consuma/exponga el canal por HTTP** (ver [API externa de canales](#api-externa-de-canales-requiere-token-del-canal))
+- **Visualización en el cliente**: cada canal de la barra lateral tiene un ícono de llave que abre un diálogo con su `id` y `token` y botón **Copiar** (traducido en es/en/pt)
 
 ### 🔔 Webhook de eventos por canal
 - Cada canal puede configurar una URL de webhook (`POST /api/channels/{id}/webhook`)
