@@ -37,8 +37,9 @@ mantener **varias llamadas 1:1 simultáneas** — una por cada operador del nave
 enrutadas independientemente por ID de llamada.
 
 > **Estado:** estable. Llamadas salientes y entrantes 1:1 alcanzan `ACTIVE` con audio
-> bidireccional, grabación server-side WAV, autenticación JWT, y PostgreSQL para
-> persistencia de sesiones, usuarios y grabaciones.
+> bidireccional, grabación server-side WAV, autenticación JWT, canales con id + token y
+> API externa con webhook de eventos, y PostgreSQL para persistencia de sesiones,
+> usuarios y grabaciones.
 
 ---
 
@@ -61,6 +62,18 @@ enrutadas independientemente por ID de llamada.
 - El usuario actual no puede eliminarse a sí mismo
 - API: `GET /api/users`, `POST /api/users`, `PUT /api/users/{id}`, `DELETE /api/users/{id}`
 - Panel accesible desde la barra lateral (icono Shield)
+
+### 🔑 Canales con id + token
+- Cada canal (sesión WhatsApp) tiene su propio **`id`** y **`token`** (48 hex, generados al crear)
+- El token se devuelve en `POST /api/sessions` (`{ id, token }`) y en el listado `GET /api/sessions` (campo `token`)
+- Los canales existentes reciben token automáticamente al reiniciar el servidor (migración automática)
+- Permite que un **sistema externo consuma/exponga el canal por HTTP** (ver [API externa de canales](#api-externa-de-canales-requiere-token-del-canal))
+
+### 🔔 Webhook de eventos por canal
+- Cada canal puede configurar una URL de webhook (`POST /api/channels/{id}/webhook`)
+- El servidor notifica eventos de llamadas: `call.incoming`, `call.outbound`, `call.status`, `call.ended`
+- Payload incluye `channelId`, `channel`, `ts`, `callId`, `peer`, `direction`, `status`/`reason`
+- Incluye `X-Channel-Token` y `Authorization: Bearer` con el token del canal para validación del receptor
 
 ### 🎙️ Grabación de llamadas (server-side)
 - Grabación automática de todas las llamadas (salientes y entrantes)
@@ -165,6 +178,8 @@ enrutadas independientemente por ID de llamada.
 | `cmd/server/auth.go` | Store de usuarios (PostgreSQL), bcrypt, JWT, handlers login/register/me |
 | `cmd/server/auth_middleware.go` | Middleware `withAuth` — valida JWT en todas las rutas protegidas |
 | `cmd/server/dashboard.go` | Endpoint `GET /api/dashboard` — stats agregadas + historial reciente |
+| `cmd/server/channelapi.go` | API externa de canales — autenticación por token de canal (`/api/channels/{id}/*`) |
+| `cmd/server/webhook.go` | Cliente HTTP de webhook de eventos por canal |
 | `cmd/server/recordingstore.go` | Store de grabaciones PostgreSQL |
 | `internal/recording` | WAV writer 16 kHz mono PCM, header finalization |
 | `internal/wa` | `VoipSocket` — envía/recibe stanzas `<call>` vía whatsmeow |
@@ -320,8 +335,8 @@ Todas las rutas requieren header `Authorization: Bearer <token>`.
 
 | Método | Ruta | Propósito |
 |---|---|---|
-| `GET` | `/api/sessions` | Listar cuentas (id, nombre, jid, estado, vinculada) |
-| `POST` | `/api/sessions` | Crear una cuenta e iniciar vinculación por QR |
+| `GET` | `/api/sessions` | Listar cuentas (id, nombre, jid, estado, vinculada, token, webhook) |
+| `POST` | `/api/sessions` | Crear una cuenta e iniciar vinculación por QR — responde `{ id, token }` |
 | `DELETE` | `/api/sessions/{sid}` | Cerrar sesión y eliminar una cuenta |
 | `POST` | `/api/sessions/{sid}/logout` | Desconectar una cuenta (mantener para re-vinculación) |
 | `POST` | `/api/sessions/{sid}/pair` | Re-vincular una cuenta (emitir QR nuevo) |
@@ -399,7 +414,7 @@ El cliente tiene 7 secciones accesibles desde la barra lateral:
 
 | Store | Base de datos | Contenido |
 |---|---|---|
-| `sessions` | PostgreSQL | Cuentas WhatsApp vinculadas (id, name, jid) |
+| `sessions` | PostgreSQL | Canales WhatsApp (id, name, jid, **token**, **webhook_url**) |
 | `users` | PostgreSQL | Usuarios del sistema (email, name, password bcrypt) |
 | `recordings` | PostgreSQL | Metadata de grabaciones WAV |
 | `/data/recordings/` | Disco | Archivos WAV de grabaciones |
@@ -420,12 +435,15 @@ cd client && npm run build    # type-check del cliente + build de producción
 ## Seguridad
 
 La API utiliza **JWT** para autenticación — todas las rutas `/api/*` (excepto
-`/api/auth/login` y `/api/auth/register`) requieren un token válido.
+`/api/auth/login` y `/api/auth/register`) requieren un token válido. Las rutas
+`/api/channels/{id}/*` en cambio se autentican con el **token del canal**
+(`X-Channel-Token` o `Authorization: Bearer`).
 
 - Los tokens JWT expiran a las 72 horas
 - Las contraseñas se almacenan con **bcrypt**
 - Las rutas de login/register son públicas (no envían token)
 - El EventSource (SSE) no se conecta sin token válido
+- Cada canal tiene un token único de 48 hex; su validación usa comparación en tiempo constante
 - Configurá `JWT_SECRET` en producción para firmar tokens con un secreto seguro
 - PostgreSQL contiene credenciales de sesión de WhatsApp (secretos): **no lo subas a
   un repositorio** y mantenlo protegido
