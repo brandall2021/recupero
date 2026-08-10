@@ -17,6 +17,13 @@ type TranslationKeys = {
   linked: string;
   connecting: string;
   logout: string;
+  // Channel token
+  channel_credentials: string;
+  channel_credentials_desc: string;
+  channel_id_label: string;
+  channel_token_label: string;
+  copy: string;
+  copied: string;
   // Calls
   calls_nav: string;
   dialer: string;
@@ -141,6 +148,12 @@ const translations: Record<Locale, TranslationKeys> = {
     linked: "Linked",
     connecting: "Connecting…",
     logout: "Log out",
+    channel_credentials: "Channel credentials",
+    channel_credentials_desc: "External API credentials for this channel. Keep the token private.",
+    channel_id_label: "Channel ID",
+    channel_token_label: "Channel token",
+    copy: "Copy",
+    copied: "Copied",
     calls_nav: "Calls",
     dialer: "Dialer",
     call: "Call",
@@ -252,6 +265,12 @@ const translations: Record<Locale, TranslationKeys> = {
     linked: "Vinculado",
     connecting: "Conectando…",
     logout: "Cerrar sesión",
+    channel_credentials: "Credenciales del canal",
+    channel_credentials_desc: "Credenciales de la API externa de este canal. Mantené el token en privado.",
+    channel_id_label: "ID del canal",
+    channel_token_label: "Token del canal",
+    copy: "Copiar",
+    copied: "Copiado",
     calls_nav: "Llamadas",
     dialer: "Marcador",
     call: "Llamar",
@@ -363,6 +382,12 @@ const translations: Record<Locale, TranslationKeys> = {
     linked: "Vinculado",
     connecting: "Conectando…",
     logout: "Sair",
+    channel_credentials: "Credenciais do canal",
+    channel_credentials_desc: "Credenciais da API externa deste canal. Mantenha o token em sigilo.",
+    channel_id_label: "ID do canal",
+    channel_token_label: "Token do canal",
+    copy: "Copiar",
+    copied: "Copiado",
     calls_nav: "Chamadas",
     dialer: "Discador",
     call: "Ligar",

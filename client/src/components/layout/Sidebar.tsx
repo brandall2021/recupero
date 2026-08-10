@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader2, Plus, Trash2, Phone, Users, CalendarDays, StickyNote, Mic, LogOut, LayoutDashboard, Shield } from "lucide-react";
+import { Loader2, Plus, Trash2, Phone, Users, CalendarDays, StickyNote, Mic, LogOut, LayoutDashboard, Shield, KeyRound, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -8,6 +8,7 @@ import { setActiveSession, useSessions } from "@/stores/sessions";
 import { createSession, deleteSession } from "@/services/sessions";
 import { useAuth } from "@/stores/auth";
 import { useI18n } from "@/lib/i18n";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { SessionInfo, SessionState } from "@/types/session";
 
 export type PageId = "dashboard" | "calls" | "contacts" | "schedule" | "notes" | "recordings" | "users";
@@ -44,6 +45,15 @@ export const Sidebar = ({
   const logout = useAuth((s) => s.logout);
   const [creating, setCreating] = useState(false);
   const [toDelete, setToDelete] = useState<SessionInfo | null>(null);
+  const [creds, setCreds] = useState<SessionInfo | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const copyToken = async () => {
+    if (!creds?.token) return;
+    await navigator.clipboard.writeText(creds.token);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
 
   const onNew = async () => {
     setCreating(true);
@@ -117,6 +127,16 @@ export const Sidebar = ({
             <button
               onClick={(e) => {
                 e.stopPropagation();
+                setCreds(s);
+              }}
+              className="text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+              aria-label={`Channel credentials for ${s.name}`}
+            >
+              <KeyRound className="h-4 w-4" />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
                 setToDelete(s);
               }}
               className="text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
@@ -137,6 +157,37 @@ export const Sidebar = ({
         <LogOut className="h-4 w-4" />
         {t("logout")}
       </Button>
+
+      <Dialog open={!!creds} onOpenChange={(o) => !o && setCreds(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("channel_credentials")}</DialogTitle>
+            <DialogDescription>{t("channel_credentials_desc")}</DialogDescription>
+          </DialogHeader>
+          {creds && (
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">{t("channel_id_label")}</p>
+                <p className="break-all rounded-md border bg-muted/50 px-3 py-2 font-mono text-sm">{creds.id}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">{t("channel_token_label")}</p>
+                <div className="flex items-center gap-2">
+                  <p className="min-w-0 flex-1 break-all rounded-md border bg-muted/50 px-3 py-2 font-mono text-sm">
+                    {creds.token || "—"}
+                  </p>
+                  {creds.token && (
+                    <Button size="sm" variant="outline" onClick={copyToken}>
+                      {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                      <span className="ml-1">{copied ? t("copied") : t("copy")}</span>
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={!!toDelete}
