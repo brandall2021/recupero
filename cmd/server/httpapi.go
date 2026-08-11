@@ -55,6 +55,8 @@ func (s *server) routes() http.Handler {
 	mux.Handle("DELETE /api/platform/clients/{clientId}", platform(http.HandlerFunc(s.handlePlatformClientDelete)))
 	mux.Handle("PATCH /api/platform/clients/{clientId}/status", platform(http.HandlerFunc(s.handlePlatformClientStatus)))
 	mux.Handle("PATCH /api/platform/clients/{clientId}/limits", platform(http.HandlerFunc(s.handlePlatformClientLimits)))
+	mux.Handle("GET /api/platform/sessions", platform(http.HandlerFunc(s.handlePlatformSessionList)))
+	mux.Handle("PUT /api/platform/sessions/{sid}/client", platform(http.HandlerFunc(s.handlePlatformSessionAssign)))
 
 	// Backwards-compatible per-channel API (authenticated with the channel token)
 	channel := func(h http.Handler) http.Handler {

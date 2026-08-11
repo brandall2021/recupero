@@ -1,9 +1,17 @@
-import { apiGet, apiPost, apiDelete } from "@/lib/api";
+import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
 import { getClientId } from "@/lib/client-id";
 import type { SessionInfo } from "@/types/session";
 
 export const listSessions = () =>
   apiGet<{ sessions: SessionInfo[] }>("/api/sessions").then((r) => r.sessions ?? []);
+
+export const listPlatformSessions = () =>
+  apiGet<{ sessions: Array<SessionInfo & { state: string }> }>("/api/platform/sessions").then(
+    (r) => r.sessions ?? [],
+  );
+
+export const assignSessionClient = (sid: string, clientId: string) =>
+  apiPut<{ ok: boolean }>(`/api/platform/sessions/${sid}/client`, { clientId });
 
 export const createSession = (name: string, clientId?: string) =>
   apiPost<{

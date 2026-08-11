@@ -240,3 +240,55 @@ func clientNotFoundStatus(err error) int {
 	}
 	return http.StatusInternalServerError
 }
+
+// handlePlatformSessionList lists every session (including orphans) for the
+// platform admin to audit and assign.
+func (s *server) handlePlatformSessionList(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.sessions.store.list(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	out := make([]SessionInfo, 0, len(rows))
+	for _, row := range rows {
+		info := SessionInfo{
+			ID: row.ID, ClientID: row.ClientID, Name: row.Name, JID: row.JID,
+			PhoneNumber: row.PhoneNumber, Webhook: row.Webhook,
+			TokenConfigured: row.TokenHash != "",
+			State:           row.Status, Paired: row.JID != "",
+		}
+		if sess, ok := s.sessions.Get(row.ID); ok {
+			info = sess.info()
+		}
+		out = append(out, info)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": out})
+}
+
+// handlePlatformSessionAssign assigns (or reassigns) a session to a client.
+func (s *server) handlePlatformSessionAssign(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ClientID string `json:"clientId"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if strings.TrimSpace(body.ClientID) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "clientId required"})
+		return
+	}
+	if err := s.sessions.AssignClient(r.Context(), r.PathValue("sid"), body.ClientID); err != nil {
+		switch {
+		case errors.Is(err, ErrSessionNotFound):
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		case errors.Is(err, ErrClientNotFound):
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		case errors.Is(err, ErrClientNotActive),
+			errors.Is(err, ErrSessionLimitReached),
+			errors.Is(err, ErrSessionClientNameTaken):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		default:
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}

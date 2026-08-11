@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -160,5 +161,105 @@ func TestSessionStoreListHandlesNullClientID(t *testing.T) {
 
 	if err := store.delete(ctx, rows[0].ID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSessionStoreAssignOrphan(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+
+	db.ExecContext(ctx, "DELETE FROM sessions")
+	db.ExecContext(ctx, "DELETE FROM users")
+	db.ExecContext(ctx, "DELETE FROM clients")
+
+	if _, err := newAuthStore(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	clients, err := newClientStore(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := newSessionStore(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientA, err := clients.createWithAdmin(ctx, "Acme", "acme", 5, "acme@test.com", "Acme Admin", "secret123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientB, err := clients.createWithAdmin(ctx, "Beta", "beta", 5, "beta@test.com", "Beta Admin", "secret123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientC, err := clients.createWithAdmin(ctx, "Gamma", "gamma", 1, "gamma@test.com", "Gamma Admin", "secret123")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db.ExecContext(ctx,
+		`ALTER TABLE sessions ALTER COLUMN client_id DROP NOT NULL`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	orphanID := "00000000-0000-0000-0000-0000000000aa"
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO sessions (id, name, jid, token_hash, status, created_at, updated_at)
+		 VALUES ($1, 'Legacy', '5511999999999:1@s.whatsapp.net', '', 'connected', now(), now())`,
+		orphanID,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	orphans, err := store.listOrphaned(ctx)
+	if err != nil {
+		t.Fatalf("listOrphaned: %v", err)
+	}
+	if len(orphans) != 1 || orphans[0].ID != orphanID {
+		t.Fatalf("expected one orphan, got %+v", orphans)
+	}
+
+	if err := store.setClient(ctx, orphanID, clientA); err != nil {
+		t.Fatalf("assign to A: %v", err)
+	}
+	rows, err := store.list(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows[0].ClientID != clientA {
+		t.Fatalf("expected client A after assign, got %q", rows[0].ClientID)
+	}
+	if orphans, _ = store.listOrphaned(ctx); len(orphans) != 0 {
+		t.Fatalf("expected no orphans after assign, got %+v", orphans)
+	}
+
+	if _, _, err := store.createWithLimit(ctx, clientB, "Legacy"); err != nil {
+		t.Fatalf("create session in B: %v", err)
+	}
+	if err := store.setClient(ctx, orphanID, clientB); !errors.Is(err, ErrSessionClientNameTaken) {
+		t.Fatalf("expected name conflict, got %v", err)
+	}
+
+	if _, _, err := store.createWithLimit(ctx, clientC, "Only Slot"); err != nil {
+		t.Fatalf("create session in C: %v", err)
+	}
+	if err := store.setClient(ctx, orphanID, clientC); !errors.Is(err, ErrSessionLimitReached) {
+		t.Fatalf("expected limit reached, got %v", err)
+	}
+
+	if err := store.setClient(ctx, orphanID, clientB); !errors.Is(err, ErrSessionClientNameTaken) {
+		t.Fatalf("expected name conflict on B reassign, got %v", err)
+	}
+	if err := store.setClient(ctx, orphanID, clientA); err != nil {
+		t.Fatalf("reassign orphan to A: %v", err)
+	}
+	if rows, _ = store.list(ctx); rows[0].ClientID != clientA {
+		t.Fatalf("expected client A after reassign, got %q", rows[0].ClientID)
+	}
+
+	if err := store.setClient(ctx, "does-not-exist", clientA); !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("expected session not found, got %v", err)
+	}
+	if err := store.setClient(ctx, orphanID, "00000000-0000-0000-0000-00000000dead"); !errors.Is(err, ErrClientNotFound) {
+		t.Fatalf("expected client not found, got %v", err)
 	}
 }

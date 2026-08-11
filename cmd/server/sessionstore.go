@@ -25,11 +25,12 @@ const (
 )
 
 var (
-	ErrSessionNotFound     = errors.New("session not found")
-	ErrSessionLimitReached = errors.New("session_limit_reached")
-	ErrSessionNameTaken    = errors.New("session name already in use")
-	ErrSessionDisabled     = errors.New("session disabled")
-	ErrClientNotActive     = errors.New("client not active")
+	ErrSessionNotFound        = errors.New("session not found")
+	ErrSessionLimitReached    = errors.New("session_limit_reached")
+	ErrSessionNameTaken       = errors.New("session name already in use")
+	ErrSessionClientNameTaken = errors.New("session name already in use in target client")
+	ErrSessionDisabled        = errors.New("session disabled")
+	ErrClientNotActive        = errors.New("client not active")
 )
 
 type sessionRow struct {
@@ -210,6 +211,76 @@ func (s *sessionStore) setPhoneNumber(ctx context.Context, id, phone string) err
 func (s *sessionStore) setStatus(ctx context.Context, id, status string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET status = $1, updated_at = NOW() WHERE id = $2`, status, id)
 	return err
+}
+
+// setClient assigns (or reassigns) a session to a client, enforcing the
+// client's session limit and the per-client unique name constraint.
+func (s *sessionStore) setClient(ctx context.Context, id, clientID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var maxSessions int
+	err = tx.QueryRowContext(ctx,
+		`SELECT max_sessions FROM clients WHERE id = $1 FOR UPDATE`, clientID).Scan(&maxSessions)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrClientNotFound
+		}
+		return err
+	}
+
+	var curClientID sql.NullString
+	err = tx.QueryRowContext(ctx,
+		`SELECT client_id FROM sessions WHERE id = $1 FOR UPDATE`, id).Scan(&curClientID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrSessionNotFound
+		}
+		return err
+	}
+
+	if !curClientID.Valid || curClientID.String != clientID {
+		var used int
+		err = tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM sessions WHERE client_id = $1 AND status <> 'disabled'`, clientID).Scan(&used)
+		if err != nil {
+			return err
+		}
+		if used >= maxSessions {
+			return ErrSessionLimitReached
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE sessions SET client_id = $1, updated_at = NOW() WHERE id = $2`, clientID, id); err != nil {
+		if strings.Contains(err.Error(), "duplicate key") {
+			return ErrSessionClientNameTaken
+		}
+		return err
+	}
+	return tx.Commit()
+}
+
+// listOrphaned returns sessions not assigned to any client (legacy rows).
+func (s *sessionStore) listOrphaned(ctx context.Context) ([]sessionRow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+sessionCols+` FROM sessions WHERE client_id IS NULL ORDER BY created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []sessionRow
+	for rows.Next() {
+		r, err := scanSessionRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // rotateToken replaces the session token hash and returns the new plaintext

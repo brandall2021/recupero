@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Building2, Loader2, Pencil, Trash2, Plus, X } from "lucide-react";
+import { Building2, Loader2, Pencil, Trash2, Plus, X, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,9 @@ import {
   setClientStatus,
   setClientLimits,
 } from "@/services/clients";
+import { listPlatformSessions, assignSessionClient } from "@/services/sessions";
 import type { ClientInfo, ClientStatus } from "@/types/client";
+import type { SessionInfo } from "@/types/session";
 
 const statusVariant: Record<ClientStatus, "success" | "muted" | "destructive"> = {
   active: "success",
@@ -36,13 +38,19 @@ export const ClientsPage = () => {
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [error, setError] = useState("");
+  const [orphans, setOrphans] = useState<SessionInfo[]>([]);
+  const [orphanTargets, setOrphanTargets] = useState<Record<string, string>>({});
+  const [assigning, setAssigning] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
     try {
-      setClients(await listClients());
+      const [clients, sessions] = await Promise.all([listClients(), listPlatformSessions()]);
+      setClients(clients);
+      setOrphans(sessions.filter((s) => !s.clientId));
     } catch {
       setClients([]);
+      setOrphans([]);
     } finally {
       setLoading(false);
     }
@@ -140,6 +148,27 @@ export const ClientsPage = () => {
     }
   };
 
+  const assignOrphan = async (s: SessionInfo) => {
+    const clientId = orphanTargets[s.id];
+    if (!clientId) return;
+    setAssigning(s.id);
+    try {
+      await assignSessionClient(s.id, clientId);
+      setOrphanTargets((prev) => {
+        const next = { ...prev };
+        delete next[s.id];
+        return next;
+      });
+      load();
+    } catch (err) {
+      const msg = (err as Error).message;
+      if (msg.includes("409")) setError("Session limit reached or name already used in that client");
+      else setError((err as Error).message);
+    } finally {
+      setAssigning(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -159,6 +188,55 @@ export const ClientsPage = () => {
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
+
+      {orphans.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <Link2 className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">
+                {t("orphaned_sessions")} ({orphans.length})
+              </CardTitle>
+            </div>
+            <p className="text-xs text-muted-foreground">{t("orphaned_sessions_desc")}</p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {orphans.map((s) => (
+              <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{s.name}</p>
+                  <p className="truncate text-xs font-mono text-muted-foreground">{s.jid}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={orphanTargets[s.id] ?? ""}
+                    onChange={(e) => setOrphanTargets((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                    className="h-8 rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    <option value="">{t("select_client")}…</option>
+                    {clients.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!orphanTargets[s.id] || assigning === s.id}
+                    onClick={() => assignOrphan(s)}
+                  >
+                    {assigning === s.id ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Link2 className="h-3 w-3" />
+                    )}
+                    <span className="ml-1">{t("assign")}</span>
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {showForm && (
         <Card>

@@ -1,5 +1,6 @@
 /docs
 /wacalls-server.exe
+/cmd/server/server
 /wacalls.exe
 run-mlow.ps1
 *.exe

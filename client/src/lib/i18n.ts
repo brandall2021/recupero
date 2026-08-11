@@ -155,6 +155,9 @@ type TranslationKeys = {
   status_disabled: string;
   delete_client_warn: string;
   session_client: string;
+  orphaned_sessions: string;
+  orphaned_sessions_desc: string;
+  assign: string;
   // Footer
   accounts: string;
   theme: string;
@@ -300,6 +303,9 @@ const translations: Record<Locale, TranslationKeys> = {
     status_disabled: "Disabled",
     delete_client_warn: "This will permanently delete the client and all its sessions and users.",
     session_client: "Client",
+    orphaned_sessions: "Unassigned sessions",
+    orphaned_sessions_desc: "Sessions created before clients existed. Assign each one to a client to restore it.",
+    assign: "Assign",
     accounts: "Accounts",
     theme: "Theme",
     language: "Language",
@@ -442,6 +448,9 @@ const translations: Record<Locale, TranslationKeys> = {
     status_disabled: "Deshabilitado",
     delete_client_warn: "Esto eliminará permanentemente el cliente y todas sus sesiones y usuarios.",
     session_client: "Cliente",
+    orphaned_sessions: "Sesiones sin asignar",
+    orphaned_sessions_desc: "Sesiones creadas antes de existir los clientes. Asigná cada una a un cliente para restaurarla.",
+    assign: "Asignar",
     accounts: "Cuentas",
     theme: "Tema",
     language: "Idioma",
@@ -584,6 +593,9 @@ const translations: Record<Locale, TranslationKeys> = {
     status_disabled: "Desabilitado",
     delete_client_warn: "Isso excluirá permanentemente o cliente e todas as suas sessões e usuários.",
     session_client: "Cliente",
+    orphaned_sessions: "Sessões sem atribuição",
+    orphaned_sessions_desc: "Sessões criadas antes de existirem clientes. Atribua cada uma a um cliente para restaurá-la.",
+    assign: "Atribuir",
     accounts: "Contas",
     theme: "Tema",
     language: "Idioma",

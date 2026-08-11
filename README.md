@@ -386,10 +386,17 @@ Endpoints para gestionar empresas/arrendatarios y sus límites:
 | `DELETE` | `/api/platform/clients/{clientId}` | Eliminar cliente (y sus sesiones) |
 | `PATCH` | `/api/platform/clients/{clientId}/status` | Cambiar estado (`{ status: active \| suspended \| disabled }`) |
 | `PATCH` | `/api/platform/clients/{clientId}/limits` | Ajustar límite (`{ maxSessions }`); rechaza bajarlo por debajo del uso actual (`422 limit_below_current_usage`) |
+| `GET` | `/api/platform/sessions` | Listar todas las sesiones (incluye huérfanas: `clientId` vacío) |
+| `PUT` | `/api/platform/sessions/{sid}/client` | Asignar/reasignar una sesión a un cliente (`{ clientId }`); valida límite y nombre único; restaura la sesión |
 
 > Al crear un cliente se genera automáticamente su **admin `client_admin`**, que inicia
 > sesión y opera únicamente los canales de esa empresa. Un cliente `suspended` o
 > `disabled` impide el login de sus admins y bloquea su API CRM.
+
+> **Sesiones huérfanas**: las cuentas vinculadas antes del multitenant tienen
+> `client_id` NULL y no se restauran en el arranque. Desde *Clientes → Sesiones sin
+> asignar* (o `PUT /api/platform/sessions/{sid}/client`) se asignan a un cliente y
+> vuelven a estar en línea.
 
 ### API externa de canales (requiere token del canal)
 

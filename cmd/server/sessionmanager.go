@@ -72,8 +72,10 @@ func (m *SessionManager) emitWebhook(s *Session, evtType string, payload map[str
 
 func (m *SessionManager) register(s *Session) {
 	m.mu.Lock()
+	if _, exists := m.sessions[s.id]; !exists {
+		m.order = append(m.order, s.id)
+	}
 	m.sessions[s.id] = s
-	m.order = append(m.order, s.id)
 	m.mu.Unlock()
 }
 
@@ -136,48 +138,100 @@ func (m *SessionManager) Restore(ctx context.Context) error {
 	}
 	restored := 0
 	for _, row := range rows {
-		cl, ok := m.sessionClientOK(ctx, &row)
-		if !ok {
-			m.log.Warn("skipping session: client missing or not active", "session", row.ID, "client", row.ClientID)
-			continue
-		}
-		_ = cl
-		if row.JID == "" {
-			m.log.Warn("dropping session with no jid", "session", row.ID)
-			_ = m.store.delete(ctx, row.ID)
-			continue
-		}
-		jid, err := types.ParseJID(row.JID)
+		ok, err := m.restoreRow(ctx, &row)
 		if err != nil {
-			m.log.Warn("dropping session with unparseable jid", "session", row.ID, "jid", row.JID)
-			_ = m.store.delete(ctx, row.ID)
-			continue
+			return err
 		}
-		device, err := m.container.GetDevice(ctx, jid)
-		if err != nil || device == nil {
-			m.log.Warn("dropping session with no stored device", "session", row.ID, "jid", row.JID, "err", err)
-			_ = m.store.delete(ctx, row.ID)
-			continue
-		}
-		tokenHash := row.TokenHash
-		if tokenHash == "" {
-			if _, err := m.store.rotateToken(ctx, row.ID); err != nil {
-				m.log.Warn("failed to set session token", "session", row.ID, "err", err)
-			}
-			if refreshed, err := m.store.get(ctx, row.ID); err == nil {
-				tokenHash = refreshed.TokenHash
-			}
-		}
-		client := whatsmeow.NewClient(device, m.waLogger)
-		s := newSession(m, row.ID, row.ClientID, row.Name, tokenHash, row.Webhook, client)
-		m.register(s)
-		restored++
-		if err := s.connect(ctx); err != nil {
-			m.log.Error("session connect failed", "session", row.ID, "err", err)
+		if ok {
+			restored++
 		}
 	}
 	m.broker.emitSessionList(m.infos())
 	m.log.Info("sessions restored", "count", restored)
+	return nil
+}
+
+// restoreRow restores a single session row. Returns false when the row is
+// skipped (client missing/inactive, no jid, no stored device) or true when it
+// was registered and connected.
+func (m *SessionManager) restoreRow(ctx context.Context, row *sessionRow) (bool, error) {
+	cl, ok := m.sessionClientOK(ctx, row)
+	if !ok {
+		m.log.Warn("skipping session: client missing or not active", "session", row.ID, "client", row.ClientID)
+		return false, nil
+	}
+	_ = cl
+	if row.JID == "" {
+		m.log.Warn("dropping session with no jid", "session", row.ID)
+		_ = m.store.delete(ctx, row.ID)
+		return false, nil
+	}
+	jid, err := types.ParseJID(row.JID)
+	if err != nil {
+		m.log.Warn("dropping session with unparseable jid", "session", row.ID, "jid", row.JID)
+		_ = m.store.delete(ctx, row.ID)
+		return false, nil
+	}
+	device, err := m.container.GetDevice(ctx, jid)
+	if err != nil || device == nil {
+		m.log.Warn("dropping session with no stored device", "session", row.ID, "jid", row.JID, "err", err)
+		_ = m.store.delete(ctx, row.ID)
+		return false, nil
+	}
+	tokenHash := row.TokenHash
+	if tokenHash == "" {
+		if _, err := m.store.rotateToken(ctx, row.ID); err != nil {
+			m.log.Warn("failed to set session token", "session", row.ID, "err", err)
+		}
+		if refreshed, err := m.store.get(ctx, row.ID); err == nil {
+			tokenHash = refreshed.TokenHash
+		}
+	}
+	client := whatsmeow.NewClient(device, m.waLogger)
+	s := newSession(m, row.ID, row.ClientID, row.Name, tokenHash, row.Webhook, client)
+	m.register(s)
+	if err := s.connect(ctx); err != nil {
+		m.log.Error("session connect failed", "session", row.ID, "err", err)
+	}
+	return true, nil
+}
+
+// AssignClient assigns (or reassigns) a session to a client and restores it if
+// it is not already running.
+func (m *SessionManager) AssignClient(ctx context.Context, id, clientID string) error {
+	cl, err := m.clients.get(ctx, clientID)
+	if err != nil {
+		return err
+	}
+	if cl.Status != "active" {
+		return ErrClientNotActive
+	}
+	row, err := m.store.get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := m.store.setClient(ctx, id, clientID); err != nil {
+		return err
+	}
+	row.ClientID = clientID
+
+	m.mu.Lock()
+	_, inMem := m.sessions[id]
+	if inMem {
+		if s, ok := m.sessions[id]; ok {
+			s.mu.Lock()
+			s.clientID = clientID
+			s.mu.Unlock()
+		}
+	}
+	m.mu.Unlock()
+
+	if !inMem {
+		if _, err := m.restoreRow(ctx, row); err != nil {
+			return err
+		}
+	}
+	m.broker.emitSessionList(m.infos())
 	return nil
 }
 
