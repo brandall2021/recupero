@@ -86,9 +86,10 @@ const sessionCols = `id, client_id, name, COALESCE(jid, ''), COALESCE(token_hash
 
 func scanSessionRow(sc interface{ Scan(...any) error }) (sessionRow, error) {
 	var r sessionRow
-	var jid, tokenHash, phone, webhook sql.NullString
+	var clientID, jid, tokenHash, phone, webhook sql.NullString
 	var tokenCreated, tokenLastUsed sql.NullTime
-	err := sc.Scan(&r.ID, &r.ClientID, &r.Name, &jid, &tokenHash, &r.Status, &phone, &webhook, &tokenCreated, &tokenLastUsed, &r.CreatedAt, &r.UpdatedAt)
+	err := sc.Scan(&r.ID, &clientID, &r.Name, &jid, &tokenHash, &r.Status, &phone, &webhook, &tokenCreated, &tokenLastUsed, &r.CreatedAt, &r.UpdatedAt)
+	r.ClientID = clientID.String
 	r.JID = jid.String
 	r.TokenHash = tokenHash.String
 	r.PhoneNumber = phone.String

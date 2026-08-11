@@ -60,6 +60,9 @@ type Broker struct {
 	history []CallRecord
 
 	SnapshotFn func() []any
+
+	// SessionClientFn maps a session id to its owning client id ("" if unknown).
+	SessionClientFn func(sessionID string) string
 }
 
 func NewBroker() *Broker {
@@ -85,18 +88,70 @@ func (b *Broker) unsubscribe(s *subscriber) {
 }
 
 func (b *Broker) broadcast(ev any) {
-	data, err := json.Marshal(ev)
-	if err != nil {
-		return
-	}
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	for s := range b.subs {
+		filtered := b.filterForClient(s.clientID, ev)
+		if filtered == nil {
+			continue
+		}
+		data, err := json.Marshal(filtered)
+		if err != nil {
+			continue
+		}
 		select {
 		case s.ch <- data:
 		default:
 		}
 	}
+}
+
+// filterForClient narrows an event to the sessions owned by clientID ("" means
+// no restriction, e.g. platform admins). Returns nil when nothing should reach
+// the subscriber.
+func (b *Broker) filterForClient(clientID string, ev any) any {
+	if clientID == "" || b.SessionClientFn == nil {
+		return ev
+	}
+	m, ok := ev.(map[string]any)
+	if !ok {
+		return ev
+	}
+	if raw, ok := m["sessions"].([]SessionInfo); ok {
+		out := make([]SessionInfo, 0, len(raw))
+		for _, si := range raw {
+			if si.ClientID == clientID {
+				out = append(out, si)
+			}
+		}
+		cp := make(map[string]any, len(m)+1)
+		for k, v := range m {
+			cp[k] = v
+		}
+		cp["sessions"] = out
+		return cp
+	}
+	if raw, ok := m["calls"].([]CallRecord); ok {
+		out := make([]CallRecord, 0, len(raw))
+		for _, c := range raw {
+			if b.SessionClientFn(c.SessionID) == clientID {
+				out = append(out, c)
+			}
+		}
+		cp := make(map[string]any, len(m)+1)
+		for k, v := range m {
+			cp[k] = v
+		}
+		cp["calls"] = out
+		return cp
+	}
+	if sid, ok := m["sessionId"].(string); ok {
+		if b.SessionClientFn(sid) != clientID {
+			return nil
+		}
+		return ev
+	}
+	return ev
 }
 
 func (b *Broker) emitAuthState(sessionID string, a AuthSnapshot) {
@@ -237,7 +292,9 @@ func (b *Broker) serveSSE(w http.ResponseWriter, r *http.Request, clientID strin
 
 	if b.SnapshotFn != nil {
 		for _, ev := range b.SnapshotFn() {
-			writeSSE(w, flusher, ev)
+			if filtered := b.filterForClient(clientID, ev); filtered != nil {
+				writeSSE(w, flusher, filtered)
+			}
 		}
 	}
 	b.broadcastCallList()

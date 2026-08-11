@@ -66,6 +66,12 @@ func newServer(ctx context.Context, databaseURL, staticDir string, maxCalls int,
 	broker := NewBroker()
 	mgr := newSessionManager(ctx, container, broker, store, recStore, clientSt, waLogger, log, maxCalls)
 	broker.SnapshotFn = mgr.snapshotEvents
+	broker.SessionClientFn = func(sessionID string) string {
+		if s, ok := mgr.Get(sessionID); ok {
+			return s.clientID
+		}
+		return ""
+	}
 
 	return &server{broker: broker, sessions: mgr, auth: authSt, clients: clientSt, log: log, staticDir: staticDir}, nil
 }

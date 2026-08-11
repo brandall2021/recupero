@@ -116,3 +116,49 @@ func TestSessionStoreRoundtrip(t *testing.T) {
 		t.Fatalf("expected empty after delete, got %+v", rows)
 	}
 }
+
+func TestSessionStoreListHandlesNullClientID(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+
+	db.ExecContext(ctx, "DELETE FROM sessions")
+	db.ExecContext(ctx, "DELETE FROM users")
+	db.ExecContext(ctx, "DELETE FROM clients")
+
+	if _, err := newAuthStore(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newClientStore(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	store, err := newSessionStore(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// legacy row created before the multitenant migration: client_id is NULL
+	if _, err := db.ExecContext(ctx,
+		`ALTER TABLE sessions ALTER COLUMN client_id DROP NOT NULL`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO sessions (id, name, jid, token_hash, status, created_at, updated_at)
+		 VALUES ($1, 'Legacy', '5511999999999:1@s.whatsapp.net', '', 'connected', now(), now())`,
+		"00000000-0000-0000-0000-000000000099",
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := store.list(ctx)
+	if err != nil {
+		t.Fatalf("list should not fail on NULL client_id: %v", err)
+	}
+	if len(rows) != 1 || rows[0].ID != "00000000-0000-0000-0000-000000000099" || rows[0].ClientID != "" {
+		t.Fatalf("unexpected rows for legacy session: %+v", rows)
+	}
+
+	if err := store.delete(ctx, rows[0].ID); err != nil {
+		t.Fatal(err)
+	}
+}

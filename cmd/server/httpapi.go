@@ -131,7 +131,8 @@ func (s *server) sessionByID(w http.ResponseWriter, r *http.Request) *Session {
 }
 
 func (s *server) handleEvents(w http.ResponseWriter, r *http.Request) {
-	s.broker.serveSSE(w, r, clientID(r))
+	scope := s.userClientScope(r)
+	s.broker.serveSSE(w, r, scope)
 }
 
 // userClientScope returns the client id a client_admin is restricted to, or ""
